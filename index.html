@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CRUISE</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app"></div>
+<div id="crash"></div>
+<script>
+  // any uncaught error shows up on screen instead of only in the console
+  const crash = m => { const c = document.getElementById('crash'); c.textContent = m; c.style.display = 'block'; };
+  addEventListener('error', e => crash((e.message || e.error) + '  @ ' + (e.filename || '').split('/').pop() + ':' + e.lineno));
+  addEventListener('unhandledrejection', e => crash('promise: ' + (e.reason && e.reason.message || e.reason)));
+</script>
+
+<div id="hud">
+  <div class="panel tl">
+    <div class="row big"><span id="lapTime">--.---</span><span class="delta" id="delta"></span></div>
+    <div class="row sub">BEST <b id="bestTime">--.---</b></div>
+    <div class="sectors" id="sectors"></div>
+  </div>
+
+  <div class="panel tr">
+    <div class="row name"><b id="trackName"></b> · <span id="carName"></span> <span id="padHint"></span></div>
+    <div class="row aids" id="aids"></div>
+  </div>
+
+  <div class="panel br">
+    <div class="speedbox">
+      <span id="speed">0</span><i id="unit">MPH</i>
+      <em id="gear">1</em>
+    </div>
+    <div class="bar rpm"><span id="rpmBar"></span></div>
+    <div class="meters">
+      <div class="meter">
+        <label>SLIP <b id="driftAngle">0°</b> <i id="driftHold"></i></label>
+        <div class="bar drift"><span id="driftBar"></span></div>
+      </div>
+      <div class="meter">
+        <label>SCRUB</label>
+        <div class="bar grip"><span id="gripBar"></span></div>
+      </div>
+    </div>
+    <canvas id="trace" width="240" height="52"></canvas>
+  </div>
+
+  <div class="panel bl">
+    <canvas id="minimap" width="210" height="210"></canvas>
+  </div>
+
+  <div id="toast"></div>
+</div>
+
+<div id="menu">
+  <div class="menuInner">
+    <h1>CRUISE</h1>
+    <p class="tag">no race, no timer breathing down your neck. just lines, brake points and tyre smoke.</p>
+
+    <h2>WHERE</h2>
+    <div class="list" id="trackList"></div>
+
+    <h2>WHAT</h2>
+    <div class="list" id="carList"></div>
+
+    <h2>WHEN</h2>
+    <div class="chips" id="skyList"></div>
+
+    <div class="go">
+      <button id="drive" class="primary">DRIVE</button>
+      <button id="shorts">SHORTS MODE →</button>
+    </div>
+    <p class="hint">SHORTS MODE = autopilot + 9:16 framing + no HUD. Hit record, walk away.</p>
+
+    <div class="keys">
+      <div><b>W/S</b> throttle, brake</div><div><b>A/D</b> steer</div><div><b>SPACE</b> handbrake</div>
+      <div><b>C</b> camera</div><div><b>H</b> hide HUD</div><div><b>V</b> 9:16 framing</div>
+      <div><b>L</b> racing line</div><div><b>B</b> brake boards</div><div><b>G</b> ghost of your best</div>
+      <div><b>P</b> pace car</div><div><b>[ ]</b> pace speed</div><div><b>, .</b> grip assist</div>
+      <div><b>Z</b> autopilot</div><div><b>F</b> freeze &amp; orbit</div><div><b>R</b> back on track</div>
+      <div><b>T</b> to the start</div><div><b>X</b> wipe skid marks</div><div><b>N</b> time of day</div>
+      <div><b>U</b> mph/kmh</div><div><b>M</b> sound</div><div><b>ESC</b> this menu</div>
+    </div>
+  </div>
+</div>
+
+<script type="importmap">
+{ "imports": { "three": "./js/vendor/three.module.min.js", "three/addons/": "./js/vendor/addons/" } }
+</script>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
