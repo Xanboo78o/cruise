@@ -12,7 +12,7 @@ export const SKIES = {
   noon:   { top: 0x3f7fd0, bot: 0xbfe0f5, sun: 0xffffff, fog: 0xcfe6f5, fogNear: 350, fogFar: 1700,
             hemiSky: 0xcfe6ff, hemiGround: 0x5a6a4a, dir: 0xffffff, dirI: 1.25, amb: 0.48, dirPos: [0.4, 0.9, 0.3] },
   night:  { top: 0x070a16, bot: 0x1b2340, sun: 0x9fb6e8, fog: 0x121a2e, fogNear: 120, fogFar: 780,
-            hemiSky: 0x3a4a72, hemiGround: 0x141824, dir: 0xa8bce8, dirI: 0.5, amb: 0.42, dirPos: [-0.4, 0.7, 0.6] },
+            hemiSky: 0x44567f, hemiGround: 0x181d2b, dir: 0xa8bce8, dirI: 0.55, amb: 0.54, dirPos: [-0.4, 0.7, 0.6] },
 };
 
 // deterministic hash noise — same world every reload
@@ -75,7 +75,7 @@ const MAT = {
   line:   () => new THREE.MeshBasicMaterial({ color: 0xf0ece0, transparent: true, opacity: 0.85, side: THREE.DoubleSide }),
   kerb:   () => new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }),
   terra:  () => new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }),
-  ideal:  () => new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.6, depthWrite: false, side: THREE.DoubleSide }),
+  ideal:  () => new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.45, depthWrite: false, side: THREE.DoubleSide }),
 };
 
 // A ribbon between two lateral offsets along the centreline.

@@ -240,8 +240,8 @@ class CityWorld {
     this.group.add(water);
 
     // pavement then asphalt on top, so junctions merge without any seam work
-    this.group.add(this.roadMesh(4.5, 0.14, this.night ? 0x2a2e38 : 0x9aa0a8));
-    this.group.add(this.roadMesh(0, 0.2, this.night ? 0x16181e : 0x33373f));
+    this.group.add(this.roadMesh(4.5, 0.14, this.night ? 0x353a45 : 0x9aa0a8));
+    this.group.add(this.roadMesh(0, 0.2, this.night ? 0x24272e : 0x545a64));
     this.padMesh();
     this.lanePaint();
     this.buildingMesh();
@@ -273,7 +273,7 @@ class CityWorld {
   padMesh() {
     const g = new THREE.CircleGeometry(PAD.r, 48);
     g.rotateX(-Math.PI / 2);
-    const m = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ color: this.night ? 0x15171d : 0x35393f }));
+    const m = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ color: this.night ? 0x23262d : 0x4a4f58 }));
     m.position.set(PAD.x, 0.18, PAD.z);
     m.receiveShadow = true;
     this.group.add(m);
@@ -380,10 +380,10 @@ class CityWorld {
 
     if (this.night) {
       // cheap pools of light: additive discs under each lamp, no extra lights
-      const pool = new THREE.CircleGeometry(7.5, 12);
+      const pool = new THREE.CircleGeometry(9.5, 12);
       pool.rotateX(-Math.PI / 2);
       const pm = new THREE.MeshBasicMaterial({
-        color: 0xffcf8a, transparent: true, opacity: 0.10,
+        color: 0xffcf8a, transparent: true, opacity: 0.17,
         blending: THREE.AdditiveBlending, depthWrite: false });
       const pool_i = new THREE.InstancedMesh(pool, pm, poles.length);
       poles.forEach((p, i) => {
@@ -432,7 +432,7 @@ class CityWorld {
     for (let i = 0; i < m.line.length; i++) {
       const q = m.line[i];
       const c = m.profile.state[i] === 2 ? red : m.profile.state[i] === 0 ? green : amber;
-      pos.push(q.x + q.nx * 0.5, 0.26, q.z + q.nz * 0.5, q.x - q.nx * 0.5, 0.26, q.z - q.nz * 0.5);
+      pos.push(q.x + q.nx * 0.42, 0.26, q.z + q.nz * 0.42, q.x - q.nx * 0.42, 0.26, q.z - q.nz * 0.42);
       col.push(c.r, c.g, c.b, c.r, c.g, c.b);
     }
     for (let i = 0; i < m.line.length; i++) {
@@ -444,7 +444,7 @@ class CityWorld {
     g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
     g.setIndex(idx);
     this.idealLine = new THREE.Mesh(g, new THREE.MeshBasicMaterial({
-      vertexColors: true, transparent: true, opacity: 0.6, depthWrite: false, side: THREE.DoubleSide }));
+      vertexColors: true, transparent: true, opacity: 0.42, depthWrite: false, side: THREE.DoubleSide }));
     this.idealLine.renderOrder = 2;
     this.group.add(this.idealLine);
 
