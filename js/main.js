@@ -96,18 +96,6 @@ function loadTrack(id) {
   resetCar(true);
 }
 
-function setCar(id) {
-  S.carId = id;
-  car.setPreset(id);
-  if (!world) return;
-  scene.remove(carMesh, ghostMesh, paceMesh);
-  carMesh = buildCar(car.p); scene.add(carMesh);
-  ghostMesh = buildCar(car.p, 0x9fb4ff); setCarOpacity(ghostMesh, 0.32); scene.add(ghostMesh);
-  paceMesh = buildCar(car.p, 0xf5c145); setCarOpacity(paceMesh, 0.55); scene.add(paceMesh);
-  loadBest();
-  resetCar(true);
-}
-
 // ------------------------------------------------------------------- timing
 let lap = 0, bestTime = null, bestFrames = null, lastLap = null;
 let sectorTimes = [null, null, null], bestSectors = [null, null, null];

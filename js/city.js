@@ -310,38 +310,39 @@ class CityWorld {
   buildingMesh() {
     const tones = [0x8c8f96, 0x8a5f4c, 0x6f8496, 0x9a9280];
     const tex = windowTextures(this.night);
-    const dummy = new THREE.Object3D();
     const geo = new THREE.BoxGeometry(1, 1, 1);
-    for (let t = 0; t < 4; t++) {
-      const list = BUILDINGS.filter(b => b[5] === t);
-      if (!list.length) continue;
-      const mat = new THREE.MeshLambertMaterial({
-        color: tones[t], map: t === 3 ? null : tex.map,
-        emissive: this.night && t !== 3 ? 0xffffff : 0x000000,
-        emissiveMap: this.night && t !== 3 ? tex.emissive : null,
-        emissiveIntensity: 1.0,
-      });
-      const inst = new THREE.InstancedMesh(geo, mat, list.length);
-      inst.castShadow = true; inst.receiveShadow = true;
-      list.forEach((b, i) => {
-        dummy.position.set(b[0], b[4] / 2, b[1]);
-        dummy.scale.set(b[2], b[4], b[3]);
-        dummy.rotation.set(0, 0, 0);
-        dummy.updateMatrix();
-        inst.setMatrixAt(i, dummy.matrix);
-      });
-      this.group.add(inst);
-      // roof caps so the window texture doesn't stretch over the top
-      const caps = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1),
-        new THREE.MeshLambertMaterial({ color: 0x53565c }), list.length);
-      list.forEach((b, i) => {
-        dummy.position.set(b[0], b[4] + 0.5, b[1]);
-        dummy.scale.set(b[2] + 1.2, 1, b[3] + 1.2);
-        dummy.updateMatrix();
-        caps.setMatrixAt(i, dummy.matrix);
-      });
-      caps.castShadow = true;
-      this.group.add(caps);
+    const capM = new THREE.MeshLambertMaterial({ color: this.night ? 0x2a2d33 : 0x53565c });
+    // One mesh per building rather than one instanced batch: each needs its own
+    // UV repeat or the windows come out the size of the rooms behind them.
+    // A tile of the texture is 7 windows across by 6 up ~= 22 m x 24 m.
+    for (const [x, z, w, d, h, tone] of BUILDINGS) {
+      let mat;
+      if (tone === 3) {
+        mat = new THREE.MeshLambertMaterial({ color: tones[3] });
+      } else {
+        const map = tex.map.clone();
+        map.needsUpdate = true;
+        map.repeat.set(Math.max(1, w / 22), Math.max(1, h / 24));
+        mat = new THREE.MeshLambertMaterial({ color: tones[tone], map });
+        if (this.night) {
+          const em = tex.emissive.clone();
+          em.needsUpdate = true;
+          em.repeat.copy(map.repeat);
+          mat.emissive = new THREE.Color(0xffc98a);
+          mat.emissiveMap = em;
+          mat.emissiveIntensity = 0.62;
+        }
+      }
+      const m = new THREE.Mesh(geo, mat);
+      m.position.set(x, h / 2, z);
+      m.scale.set(w, h, d);
+      m.castShadow = true; m.receiveShadow = true;
+      this.group.add(m);
+      const cap = new THREE.Mesh(geo, capM);
+      cap.position.set(x, h + 0.5, z);
+      cap.scale.set(w + 1.2, 1, d + 1.2);
+      cap.castShadow = true;
+      this.group.add(cap);
     }
   }
 

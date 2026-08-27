@@ -6,7 +6,7 @@ import * as THREE from 'three';
 
 export const SKIES = {
   sunset: { top: 0x2a3a6b, bot: 0xff9a5c, sun: 0xffd9a0, fog: 0xf2b183, fogNear: 240, fogFar: 900,
-            hemiSky: 0xffc39a, hemiGround: 0x4a3a2e, dir: 0xffd0a0, dirI: 1.35, amb: 0.30, dirPos: [-0.5, 0.35, -1] },
+            hemiSky: 0xffc39a, hemiGround: 0x4a3a2e, dir: 0xffd0a0, dirI: 1.4, amb: 0.40, dirPos: [-0.5, 0.52, -1] },
   dawn:   { top: 0x1d3f66, bot: 0xf0c8b0, sun: 0xfff0d0, fog: 0xcfd8e0, fogNear: 300, fogFar: 1500,
             hemiSky: 0xbcd4f0, hemiGround: 0x4a4438, dir: 0xffe8cc, dirI: 1.15, amb: 0.42, dirPos: [0.8, 0.45, 0.4] },
   noon:   { top: 0x3f7fd0, bot: 0xbfe0f5, sun: 0xffffff, fog: 0xcfe6f5, fogNear: 350, fogFar: 1700,
@@ -119,7 +119,7 @@ export class World {
     this.buildTerrain();
 
     // --- asphalt, with a bit of tonal noise so it isn't a flat slab
-    const base = new THREE.Color(0x474d57), dark = new THREE.Color(0x353a43);
+    const base = new THREE.Color(0x565d68), dark = new THREE.Color(0x40454e);
     const road = new THREE.Mesh(ribbon(s, closed, -hw, hw, 0.06, i => {
       const t = vnoise(s[i].x * 0.08, s[i].z * 0.08);
       return base.clone().lerp(dark, t * 0.8);
@@ -160,7 +160,7 @@ export class World {
   // further out, so a 110 m descent still sits in a mountain instead of a hole.
   buildTerrain() {
     const m = this.model, b = m.bounds;
-    const pad = 260, cell = 7;
+    const pad = 340, cell = 7;
     const x0 = b.minX - pad, z0 = b.minZ - pad;
     const w = Math.ceil((b.maxX + pad - x0) / cell), h = Math.ceil((b.maxZ + pad - z0) / cell);
     const pos = [], col = [], idx = [];
@@ -206,6 +206,19 @@ export class World {
     mesh.receiveShadow = true;
     this.group.add(mesh);
     this.terrain = mesh;
+
+    // A backing plate far below and far out: without it you can see past the
+    // edge of the terrain to open sky, which on a mountain track is most of the
+    // frame whenever the camera looks downhill.
+    let minY = 1e9;
+    for (const s of m.samples) minY = Math.min(minY, s.y);
+    const back = new THREE.Mesh(
+      new THREE.PlaneGeometry(9000, 9000),
+      new THREE.MeshLambertMaterial({ color: grass.clone().lerp(dirt, 0.45) })
+    );
+    back.rotation.x = -Math.PI / 2;
+    back.position.set((b.minX + b.maxX) / 2, minY - 26, (b.minZ + b.maxZ) / 2);
+    this.group.add(back);
   }
 
   // Kerbs only where it actually bends, on the inside and outside of the corner.

@@ -98,8 +98,13 @@ export class Car {
       const w = 0.34 * stability * Math.min(Math.abs(this.slipR) / 0.4, 1);
       target += (need - target) * w;
     }
-    const rate = (8.5 + 6 * Math.abs(target - this.steer)) * dt;
-    this.steer += Math.max(-rate, Math.min(rate, target - this.steer));
+    // Winding lock ON is deliberate; unwinding and catching a slide are quick.
+    // A single fast rate makes the keyboard a switch, a single slow one means you
+    // can never catch anything.
+    const diff = target - this.steer;
+    const unwinding = Math.abs(target) < Math.abs(this.steer) || Math.sign(target) !== Math.sign(this.steer);
+    const rate = (unwinding ? 9.0 : 4.2 + 2.5 * Math.abs(diff)) * dt;
+    this.steer += Math.max(-rate, Math.min(rate, diff));
   }
 
   integrate(h, inp, surf, stability) {
@@ -132,7 +137,7 @@ export class Car {
       const curve = 0.62 + 0.66 * rev - 0.32 * rev * rev;    // fat midrange, soft top end
       drive = inp.throttle * p.torque * curve * Math.abs(ratio) * p.finalDrive / p.body.wheel;
       drive *= surf.accel;
-      if (u < -0.4 && inp.throttle > 0) drive = -drive * 0.0;  // no forward drive while rolling back
+      if (u < -0.4) drive = 0;                              // rolling backwards: brake first, then go
     }
     let brakeF = 0;
     if (inp.brake > 0.01) {
