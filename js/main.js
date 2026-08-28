@@ -380,7 +380,7 @@ function frame() {
   screens.update(dt);
   if (mapScreen && mapScreen.active) { mapScreen.update(dt); renderer.render(scene, camera); input.endFrame(); return; }
   if (!S.running || (screens.active && !attract) || S.paused) {
-    if (screens.current === 'car' || screens.current === 'track') screens.renderShowcase(renderer, camera.aspect);
+    if (screens.current === 'car' || screens.current === 'track' || screens.current === 'who') screens.renderShowcase(renderer, camera.aspect);
     else renderer.render(scene, camera);
     input.endFrame();
     return;
@@ -522,7 +522,7 @@ function frame() {
     padHint: input.usingPad ? '🎮' : '',
   });
 
-  if (screens.current === 'car' || screens.current === 'track') screens.renderShowcase(renderer, camera.aspect);
+  if (screens.current === 'car' || screens.current === 'track' || screens.current === 'who') screens.renderShowcase(renderer, camera.aspect);
   else renderer.render(scene, camera);
   input.endFrame();
 }
@@ -616,7 +616,9 @@ const screens = new Screens({
   onGo: () => go(),
   // RACE mode lives in the world: after the car, the map
   onMap: () => { S.track = 'sanoozi'; attract = false; S.paused = false; screens.hide(); go(); setTimeout(() => openMap(), 60); },
+  onOo: v => { S.oo = v; if (carMesh) setDriver(carMesh, v); try { localStorage.setItem('cruise.oo', v); } catch {} },
 });
+try { S.oo = localStorage.getItem('cruise.oo') || S.oo; } catch {}
 
 function openMenu() {
   S.paused = true;

@@ -212,6 +212,7 @@ function loadAlien(variant) {
   })));
   return alienCache.get(variant);
 }
+export function loadAlienMesh(variant) { return loadAlien(variant); }
 export function setDriver(mesh, variant) {
   const u = mesh.userData;
   if (u.driver) { mesh.remove(u.driver); u.driver = null; }

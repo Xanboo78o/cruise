@@ -7,7 +7,8 @@ import { Car } from './car.js';
 import { FlatTerrain } from './terrain.js';
 import { buildCar, placeStaticCar } from './carmesh.js';
 
-const ORDER = ['title', 'mode', 'car', 'track'];
+const ORDER = ['title', 'who', 'mode', 'car', 'track'];
+const OO_NAMES = { oobi: 'OOBI', oodi: 'OODI', ooli: 'OOLI', oopi: 'OOPI', oozi: 'OOZI' };
 
 export class Screens {
   constructor(o) {
@@ -195,6 +196,29 @@ export class Screens {
   }
 
   // ----------------------------------------------------------- navigation
+  // the five Oo on the turntable, one at a time
+  showcaseOo(variant) {
+    this.ensureShowcase();
+    const { turn } = this.showcase;
+    for (const c of turn.children) c.visible = false;
+    if (this.showcase.diorama) this.showcase.diorama.visible = false;
+    this.oos = this.oos || new Map();
+    if (!this.oos.has(variant)) {
+      const holder = new THREE.Group(); holder.visible = false; turn.add(holder); this.oos.set(variant, holder);
+      loadAlienMesh(variant).then(m => { if (m) { const a = m.clone(); a.scale.setScalar(2.4); a.castShadow = true; holder.add(a); } });
+    }
+    for (const [v, hd] of this.oos) hd.visible = v === variant;
+    this.showcase.ring.material.color.setHex(0xffb06b);
+  }
+
+  renderWho() {
+    const S = this.o.S;
+    const row = document.getElementById('whoRow');
+    if (!row.children.length) row.innerHTML = VARIANTS.map(v => `<button class="chip" data-oo="${v}">${OO_NAMES[v]}</button>`).join('');
+    row.querySelectorAll('[data-oo]').forEach(c => c.classList.toggle('sel', c.dataset.oo === (S.oo || 'oobi')));
+    document.getElementById('whoName').textContent = OO_NAMES[S.oo || 'oobi'];
+  }
+
   show(name) {
     this.current = name;
     // pick up whatever S says now (URL params, in-game changes) before drawing
@@ -203,6 +227,7 @@ export class Screens {
     this.root.classList.add('on');
     for (const s of this.root.querySelectorAll('.screen')) s.classList.toggle('on', s.dataset.screen === name);
     if (name === 'mode') this.renderMode();
+    if (name === 'who') { this.renderWho(); this.showcaseOo(this.o.S.oo || 'oobi'); }
     if (name === 'car') { this.renderCar(); this.showcaseCar(this.o.CAR_ORDER[this.carIdx]); this.warmGrid(); }
     if (name === 'track') { this.renderTrack(); this.showcaseTrack([...this.o.TRACK_ORDER, 'city'][this.trackIdx]); }
     this.root.dataset.screen = name;
@@ -236,8 +261,17 @@ export class Screens {
     const S = this.o.S;
     switch (this.current) {
       case 'title':
-        if (n.ok || n.left || n.right || n.up || n.down) this.show('mode');
+        if (n.ok || n.left || n.right || n.up || n.down) this.show(S.oo ? 'mode' : 'who');
         break;
+      case 'who': {
+        let i = VARIANTS.indexOf(S.oo || 'oobi');
+        if (n.left) i = (i + VARIANTS.length - 1) % VARIANTS.length;
+        if (n.right) i = (i + 1) % VARIANTS.length;
+        if (n.left || n.right) { S.oo = VARIANTS[i]; this.renderWho(); this.showcaseOo(S.oo); }
+        if (n.ok) { S.oo = S.oo || 'oobi'; this.o.onOo && this.o.onOo(S.oo); this.show('mode'); }
+        if (n.back) this.show('title');
+        break;
+      }
       case 'mode': {
         const modes = ['race', 'cruise', 'shorts'];
         if (this.optRow === 0) {
@@ -257,7 +291,7 @@ export class Screens {
           if (n.up) this.optRow = 2;
         }
         if (n.ok) { this.pickMode(modes[this.modeIdx]); }
-        if (n.back) this.show('title');
+        if (n.back) this.show('who');
         this.renderMode();
         break;
       }
@@ -390,10 +424,11 @@ export class Screens {
 
   bindMouse() {
     this.root.addEventListener('click', e => {
-      const t = e.target.closest('[data-mode],[data-bots],[data-laps],[data-grid],[data-car],[data-track],[data-sky],[data-go],[data-back],[data-next],[data-prev]');
+      const t = e.target.closest('[data-oo],[data-mode],[data-bots],[data-laps],[data-grid],[data-car],[data-track],[data-sky],[data-go],[data-back],[data-next],[data-prev]');
       if (!t) { if (this.current === 'title') this.show('mode'); return; }
       const S = this.o.S;
-      if (t.dataset.mode) { this.modeIdx = ['race', 'cruise', 'shorts'].indexOf(t.dataset.mode); this.pickMode(t.dataset.mode); }
+      if (t.dataset.oo) { S.oo = t.dataset.oo; this.renderWho(); this.showcaseOo(S.oo); this.o.onOo && this.o.onOo(S.oo); }
+      else if (t.dataset.mode) { this.modeIdx = ['race', 'cruise', 'shorts'].indexOf(t.dataset.mode); this.pickMode(t.dataset.mode); }
       else if (t.dataset.bots) { S.bots = +t.dataset.bots; this.renderMode(); }
       else if (t.dataset.laps) { S.laps = +t.dataset.laps; this.renderMode(); }
       else if (t.dataset.grid) { S.grid = t.dataset.grid; this.renderMode(); }
