@@ -5,6 +5,7 @@
 
 import { WORLD, ROAD_TYPES, COAST, DISTRICTS, CANYON, ROADS } from './spec.js';
 import { vnoise } from '../terrain.js';
+import { resample } from '../track.js';
 
 const sm = t => { t = Math.max(0, Math.min(1, t)); return t * t * (3 - 2 * t); };
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -30,7 +31,11 @@ export class WorldTerrain {
     this.bakeRoadHeights();
   }
 
-  segments(pts) {
+  // every road is a smooth curve through its hand-placed points, not a
+  // polygon: centripetal Catmull-Rom, densified to 4 m
+  segments(rawPts) {
+    const dense = rawPts.length > 2 ? resample(rawPts.map(([x, z]) => ({ x, z, y: 0 })), false, 4) : rawPts.map(([x, z]) => ({ x, z }));
+    const pts = dense.map(p => [p.x, p.z]);
     const out = []; let s = 0;
     for (let i = 0; i < pts.length - 1; i++) {
       const [x1, z1] = pts[i], [x2, z2] = pts[i + 1];
