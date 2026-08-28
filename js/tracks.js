@@ -109,5 +109,118 @@ const seawall = {
   props: { trees: 'palm', barrier: 'block', crowd: false },
 };
 
-export const TRACKS = { harbor, canyon, seawall };
-export const TRACK_ORDER = ['harbor', 'canyon', 'seawall'];
+// ---------------------------------------------------------------------------
+// OVAL — two 120 m sweepers and two long straights. Slipstream, three-wide,
+// no brake points to speak of. The one where the bots are fastest.
+// ---------------------------------------------------------------------------
+const oval = {
+  id: 'oval',
+  name: 'THE OVAL',
+  blurb: '2.2 km · two sweepers · flat out',
+  closed: true,
+  width: 34, scale: 1.0,
+  startIndex: 0.05,
+  sky: 'noon',
+  profile: { vMax: 80, aLat: 17 },
+  pts: [
+    p(-260, -130, 0), p(0, -130, 0), p(260, -130, 0),
+    ...arc(260, 0, 130, -90, 90, 0, 0, 8).slice(1),
+    p(0, 130, 0), p(-260, 130, 0),
+    ...arc(-260, 0, 130, 90, 270, 0, 0, 8).slice(1, -1),
+  ],
+  props: { trees: 'palm', barrier: 'tire', crowd: true },
+};
+
+// ---------------------------------------------------------------------------
+// TOUGE — a mountain pass that loops: climbs the east face through esses,
+// hairpins at the summit, drops the west face. 60 m of height each way.
+// ---------------------------------------------------------------------------
+const touge = {
+  id: 'touge',
+  name: 'TOUGE',
+  blurb: '2.6 km · up one face, down the other · the summit switchbacks',
+  closed: true,
+  width: 24, scale: 1.5, yScale: 1.0,
+  startIndex: 0.02,
+  sky: 'dawn',
+  rough: 1.0,
+  profile: { vMax: 62, aLat: 16 },
+  pts: [
+    // valley floor, heading north
+    p(-40, -250, 0), p(-40, -205, 2), p(-30, -170, 6),
+    // the climb: esses up the east face
+    p(10, -110, 12), p(60, -70, 19), p(80, -10, 26), p(50, 40, 33), p(70, 90, 40), p(110, 130, 47), p(120, 180, 53),
+    // the summit: three stacked hairpins
+    ...arc(90, 200, 30, 0, 180, 55, 57).slice(1),          // left, now heading south at x=60
+    p(60, 170, 58),
+    ...arc(30, 160, 30, 0, -180, 58, 59).slice(1),         // right, now heading north at x=0
+    p(0, 200, 60),
+    ...arc(-30, 220, 30, 0, 180, 60, 58).slice(1),         // left, now heading south at x=-60
+    p(-60, 180, 55), p(-80, 120, 50),
+    // the descent: esses down the west face
+    p(-90, 80, 46), p(-140, 40, 40), p(-190, -10, 32), p(-160, -70, 24), p(-200, -130, 16), p(-165, -190, 9), p(-150, -250, 4),
+    ...arc(-95, -250, 55, 180, 360, 3, 0, 6).slice(1, -1),  // round the bottom, back onto the floor heading north
+  ],
+  props: { trees: 'pine', barrier: 'rock', crowd: false },
+};
+
+// ---------------------------------------------------------------------------
+// AIRFIELD — runways and taxiways: three long straights joined by hairpins
+// and one fast kink. Flat, huge, a brake-point clinic.
+// ---------------------------------------------------------------------------
+const airfield = {
+  id: 'airfield',
+  name: 'AIRFIELD',
+  blurb: '3.3 km · four runways · three hairpins and a kink',
+  closed: true,
+  width: 36, scale: 1.0,
+  startIndex: 0.04,
+  sky: 'noon',
+  profile: { vMax: 80, aLat: 16 },
+  pts: [
+    p(-420, -160, 0), p(-100, -160, 0), p(240, -160, 0),
+    ...arc(240, -100, 60, -90, 90, 0, 0, 6).slice(1),                    // hairpin 1 (east)
+    p(100, -40, 0), p(-100, -40, 0), p(-240, -40, 0),
+    ...arc(-300, 20, 60, -90, -270, 0, 0, 6).slice(1),                   // hairpin 2 (west, left)
+    p(-100, 80, 0), p(60, 80, 0), p(130, 100, 0), p(200, 100, 0), p(270, 80, 0),   // the kink
+    ...arc(330, 140, 60, -90, 90, 0, 0, 6).slice(1),                     // hairpin 3 (east)
+    p(200, 200, 0), p(0, 200, 0), p(-200, 200, 0), p(-380, 200, 0),
+    ...arc(-420, 20, 180, 90, 270, 0, 0, 8).slice(1, -1),                // the big left onto the main straight
+  ],
+  props: { trees: 'palm', barrier: 'block', crowd: false },
+};
+
+// ---------------------------------------------------------------------------
+// DOCKS — tight, flat, 90-degree corners between the warehouses. Handbrake
+// country. Short lap, lots of contact.
+// ---------------------------------------------------------------------------
+const docks = {
+  id: 'docks',
+  name: 'THE DOCKS',
+  blurb: '1.3 km · square corners · handbrake country',
+  closed: true,
+  width: 26, scale: 1.4,
+  startIndex: 0.05,
+  sky: 'night',
+  profile: { vMax: 52, aLat: 15 },
+  pts: [
+    p(-150, -90, 0), p(-60, -90, 0), p(40, -90, 0),
+    ...arc(70, -60, 30, -90, 0).slice(1),                                // right
+    p(100, 0, 0),
+    ...arc(130, 0, 30, 180, 90).slice(1),                                // left
+    p(170, 30, 0),
+    ...arc(170, 60, 30, -90, 90).slice(1),                               // hairpin right
+    p(140, 90, 0), p(60, 90, 0),
+    ...arc(60, 120, 30, -90, -180).slice(1),                             // left
+    p(30, 150, 0),
+    ...arc(0, 150, 30, 0, 90).slice(1),                                  // right... into the top straight
+    p(-60, 180, 0), p(-150, 180, 0),
+    ...arc(-150, 150, 30, 90, 180).slice(1),                             // left
+    p(-180, 100, 0), p(-180, 0, 0), p(-180, -60, 0),
+    ...arc(-150, -60, 30, 180, 270).slice(1, -1),                        // final left onto the straight
+  ],
+  props: { trees: 'palm', barrier: 'block', crowd: false },
+};
+
+export const TRACKS = { harbor, canyon, seawall, oval, touge, airfield, docks };
+export const TRACK_ORDER = ['harbor', 'seawall', 'oval', 'airfield', 'docks', 'touge', 'canyon'];

@@ -158,10 +158,13 @@ export class Screens {
           const bl = [3, 5, 7, 11]; let i = bl.indexOf(S.bots);
           if (n.left) i = (i + 3) % 4; if (n.right) i = (i + 1) % 4; S.bots = bl[i];
           if (n.up) this.optRow = 0; if (n.down) this.optRow = 2;
-        } else {
+        } else if (this.optRow === 2) {
           const ll = [1, 3, 5]; let i = ll.indexOf(S.laps);
           if (n.left) i = (i + 2) % 3; if (n.right) i = (i + 1) % 3; S.laps = ll[i];
-          if (n.up) this.optRow = 1;
+          if (n.up) this.optRow = 1; if (n.down) this.optRow = 3;
+        } else {
+          if (n.left || n.right) S.grid = S.grid === 'equal' ? 'mixed' : 'equal';
+          if (n.up) this.optRow = 2;
         }
         if (n.ok) { this.pickMode(modes[this.modeIdx]); }
         if (n.back) this.show('title');
@@ -173,7 +176,7 @@ export class Screens {
         if (n.left) this.carIdx = (this.carIdx + N - 1) % N;
         if (n.right) this.carIdx = (this.carIdx + 1) % N;
         if (n.left || n.right) { S.carId = this.o.CAR_ORDER[this.carIdx]; this.renderCar(); this.showcaseCar(S.carId); }
-        if (n.ok) this.show('track');
+        if (n.ok) { if (S.mode === 'cruise') { S.track = 'city'; this.go(); } else this.show('track'); }
         if (n.back) this.show('mode');
         break;
       }
@@ -221,6 +224,10 @@ export class Screens {
     opts.style.visibility = modes[this.modeIdx] === 'race' ? 'visible' : 'hidden';
     opts.querySelectorAll('[data-bots]').forEach(c => { c.classList.toggle('sel', +c.dataset.bots === S.bots); c.classList.toggle('focus', this.optRow === 1 && +c.dataset.bots === S.bots); });
     opts.querySelectorAll('[data-laps]').forEach(c => { c.classList.toggle('sel', +c.dataset.laps === S.laps); c.classList.toggle('focus', this.optRow === 2 && +c.dataset.laps === S.laps); });
+    opts.querySelectorAll('[data-grid]').forEach(c => { c.classList.toggle('sel', c.dataset.grid === (S.grid || 'mixed')); c.classList.toggle('focus', this.optRow === 3 && c.dataset.grid === (S.grid || 'mixed')); });
+    // pad glyphs in the hints when a pad is talking
+    const pad = this.o.input.usingPad || this.o.input.pad;
+    this.root.querySelectorAll('.nav').forEach(el => el.classList.toggle('pad', !!pad));
   }
 
   renderCar() {
@@ -248,6 +255,13 @@ export class Screens {
   renderTrack() {
     const S = this.o.S;
     const ids = [...this.o.TRACK_ORDER, 'city'];
+    const wrap = document.getElementById('trackTiles');
+    if (!wrap.children.length) {
+      wrap.innerHTML = ids.map(id => {
+        const d = id === 'city' ? { name: 'THE CITY', blurb: 'street circuit · free roam' } : this.o.TRACKS[id];
+        return `<button class="tile" data-track="${id}"><canvas width="220" height="150"></canvas><b>${d.name}</b><span>${d.blurb}</span></button>`;
+      }).join('');
+    }
     const tiles = this.root.querySelectorAll('#sTrack .tile');
     tiles.forEach((t, i) => {
       t.classList.toggle('sel', i === this.trackIdx && this.optRow === 0);
@@ -280,18 +294,19 @@ export class Screens {
 
   bindMouse() {
     this.root.addEventListener('click', e => {
-      const t = e.target.closest('[data-mode],[data-bots],[data-laps],[data-car],[data-track],[data-sky],[data-go],[data-back],[data-next],[data-prev]');
+      const t = e.target.closest('[data-mode],[data-bots],[data-laps],[data-grid],[data-car],[data-track],[data-sky],[data-go],[data-back],[data-next],[data-prev]');
       if (!t) { if (this.current === 'title') this.show('mode'); return; }
       const S = this.o.S;
       if (t.dataset.mode) { this.modeIdx = ['race', 'cruise', 'shorts'].indexOf(t.dataset.mode); this.pickMode(t.dataset.mode); }
       else if (t.dataset.bots) { S.bots = +t.dataset.bots; this.renderMode(); }
       else if (t.dataset.laps) { S.laps = +t.dataset.laps; this.renderMode(); }
+      else if (t.dataset.grid) { S.grid = t.dataset.grid; this.renderMode(); }
       else if (t.dataset.car != null) { this.carIdx = +t.dataset.car; S.carId = this.o.CAR_ORDER[this.carIdx]; this.renderCar(); this.showcaseCar(S.carId); }
       else if (t.dataset.prev != null) { const N = this.o.CAR_ORDER.length; this.carIdx = (this.carIdx + N - 1) % N; S.carId = this.o.CAR_ORDER[this.carIdx]; this.renderCar(); this.showcaseCar(S.carId); }
       else if (t.dataset.next != null) { const N = this.o.CAR_ORDER.length; this.carIdx = (this.carIdx + 1) % N; S.carId = this.o.CAR_ORDER[this.carIdx]; this.renderCar(); this.showcaseCar(S.carId); }
       else if (t.dataset.track) { const ids = [...this.o.TRACK_ORDER, 'city']; this.trackIdx = ids.indexOf(t.dataset.track); S.track = t.dataset.track; this.renderTrack(); }
       else if (t.dataset.sky) { S.skyIdx = +t.dataset.sky; S.skyChosen = true; this.renderTrack(); }
-      else if (t.dataset.go != null) { if (this.current === 'car') this.show('track'); else this.go(); }
+      else if (t.dataset.go != null) { if (this.current === 'car') { if (S.mode === 'cruise') { S.track = 'city'; this.go(); } else this.show('track'); } else this.go(); }
       else if (t.dataset.back != null) { const i = ORDER.indexOf(this.current); this.show(ORDER[Math.max(0, i - 1)]); }
     });
   }

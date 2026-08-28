@@ -360,6 +360,9 @@ export class Car {
 
     let thr = inp.throttle;
     if (this.stunT > 0) thr = 0;                                  // zapped: no power
+    // arcade top speed: a soft limiter, nitro gets 12% over it
+    const vCap = p.vMax * (this.boostT > 0 ? 1.12 : 1);
+    if (this.u > vCap) thr *= Math.max(0, 1 - (this.u - vCap) / 2.5);
     // traction control: back off when a driven wheel is spinning up
     if (aids > 0) {
       let worst = 0;

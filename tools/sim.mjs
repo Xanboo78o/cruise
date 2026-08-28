@@ -7,12 +7,15 @@ import { PRESETS, CAR_ORDER } from '../js/presets.js';
 import { autoDrive, AUTO_AIDS } from '../js/driver.js';
 
 const MS = 2.23694;
-const pace = +(process.argv[2] || 0.85);
+const pace = +(process.argv[2] === 'quick' ? 0.85 : (process.argv[2] || 0.85));
+const QUICK = process.argv[2] === 'quick';           // every track x 4 cars, every car x seawall
 
+const REP = ['hachi', 'gt', 'truck', 'kart'];
 for (const id of (process.argv[4] ? [process.argv[4]] : TRACK_ORDER)) {
   const m = new TrackModel(TRACKS[id]);
   const env = { terrain: m.terrain, surfaceAt: (x, z) => m.surfaceAt(x, z) };
-  for (const carId of (process.argv[3] ? [process.argv[3]] : CAR_ORDER)) {
+  const carsHere = process.argv[3] && !QUICK ? [process.argv[3]] : QUICK ? (id === 'seawall' ? CAR_ORDER : REP) : CAR_ORDER;
+  for (const carId of carsHere) {
     const car = new Car(carId, PRESETS);
     const s0 = m.samples[Math.floor((m.def.startIndex || 0) * m.samples.length) % m.samples.length];
     car.reset(s0.x, s0.z, Math.atan2(s0.tx, s0.tz), m.heightAt(s0.x, s0.z));

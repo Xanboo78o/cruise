@@ -115,7 +115,42 @@ clean laps forever. `N` for night, `C` to change camera while it drives.
 | **SEAWALL** | 550 m, wide and slow. The warm-up. Every corner can be taken sideways without much commitment. |
 | **THE CITY** | Free roam. ~30 blocks, a waterfront, a skidpad with painted circles out west, and a street circuit routed through it with the same line and boards as the real tracks. |
 
-## The cars
+## The roster — 23 cars
+
+**Cup** — STREET · COP · LUXE · FLATBED · CAB. Five bodies, one set of numbers
+(within a couple of percent on purpose). Pick by looks; the race is decided by
+driving. Set the grid to EQUAL and the bots come from your class.
+**Serious** — HACHI · GT · RALLY · FORMULA · HYPER.
+**Fun** — MUSCLE · KART · KART II · KART III · TAXI.
+**Silly** — PICKUP · LIMO · AMBULANCE · VAN · FIRETRUCK · GARBAGE · DELIVERY ·
+TRACTOR (top speed of a brisk jog).
+
+Every car has an arcade top speed of its own (a soft limiter) so the field is
+gear-limited by design, not by accident.
+
+## The tracks — 7 circuits + the city
+
+HARBOR LOOP · SEAWALL · THE OVAL (two 120 m sweepers, flat out) · AIRFIELD
+(four runways, three hairpins, a kink) · THE DOCKS (square corners, night,
+handbrake country) · TOUGE (up one face, three stacked summit hairpins, down
+the other) · CANYON PASS (point to point, 110 m down). All hand-drawn in
+`js/tracks.js`, all validated by `tools/validate.mjs`.
+
+## Cruise — the open city
+
+CRUISE is the city, full stop: 30 blocks, a waterfront, a skidpad, five cars of
+slow traffic to weave through, and a couple of hundred things to hit — cone
+slaloms on the boulevard, box stacks at the docks, tyre walls round the pad,
+barrels at the junctions. Props are real: mass, friction, tumble, they bounce
+off buildings and each other, and a barrel pushes back. `T` puts them back.
+
+## Xbox / gamepad
+
+Standard mapping: left stick steer, RT throttle, LT brake, A or RB drift,
+X or LB item, Y camera, Start menu, Back hide HUD. D-pad / A / B on the
+screens. Rumble on bumps, landings and nitro where the browser allows it.
+
+## The cars (how they're made)
 
 Bodies are Kenney's CC0 Car Kit (`assets/models`, license inside). The physics
 takes wheelbase and tyre size *from the model*, so the wheels sit in the arches.

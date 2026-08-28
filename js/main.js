@@ -14,7 +14,8 @@ import { Input } from './input.js';
 import { HUD } from './hud.js';
 import { LapRecorder, GhostPlayer, PaceCar, Best } from './ghost.js';
 import { Audio } from './audio.js';
-import { buildCity } from './city.js';
+import { buildCity, cityProps, cityWalls } from './city.js';
+import { Props } from './props.js';
 import { autoDrive, AUTO_AIDS } from './driver.js';
 import { Items, ITEM_INFO } from './items.js';
 import { Bots } from './bots.js';
@@ -29,7 +30,7 @@ const S = {
   stability: 0.7, showLine: true, showBoards: true,
   ghostOn: true, paceOn: false, pace: 0.85, auto: false, frozen: false,
   hudOn: true, vertical: false, skyIdx: 0, skyChosen: false, running: false,
-  mode: 'race', bots: 7, laps: 3, shorts: false, paused: false,
+  mode: 'race', bots: 7, laps: 3, shorts: false, paused: false, grid: 'mixed',
 };
 let attract = false;                      // a race plays behind the title screen
 let cfg = { mode: 'race', bots: 7, laps: 3 };   // what the loaded track is running (attract overrides S)
@@ -52,7 +53,7 @@ const audio = new Audio();
 
 const car = new Car(S.carId, PRESETS);
 let carMesh, ghostMesh, paceMesh, world, model, skyMesh, lights;
-let skid, smoke, items = null, bots = null, race = null;
+let skid, smoke, items = null, bots = null, race = null, props = null;
 const modelCache = new Map();
 
 // the road under the wheels, plus whatever someone spilled on it
@@ -76,9 +77,10 @@ function getModel(id) {
 function clearScene() {
   if (world) world.dispose();
   if (items) items.dispose();
+  if (props) props.dispose();
   for (const o of [...scene.children]) scene.remove(o);
   scene.children.length = 0;
-  items = null; bots = null; race = null;
+  items = null; bots = null; race = null; props = null;
 }
 
 function loadTrack(id, opts = {}) {
@@ -115,8 +117,24 @@ function loadTrack(id, opts = {}) {
   loadBest();
 
   if (cfg.mode === 'race') startRace();
-  else resetCar(true);
+  else startCruise();
   S.running = true;
+}
+
+// CRUISE: the open city, things to hit, a bit of traffic, no clock
+function startCruise() {
+  resetCar(true);
+  if (model.def.id === 'city') {
+    props = new Props(scene, (x, z) => model.heightAt(x, z), cityProps(), cityWalls());
+    bots = new Bots(model, 5, S.carId, { pace: [0.45, 0.62], items: false });
+    for (const b of bots.list) { b.mesh = buildCar(PRESETS[b.id]); scene.add(b.mesh); }
+    // scatter the traffic round the circuit so it isn't a queue at the start
+    bots.list.forEach((b, i) => {
+      const p = model.sampleAtDistance((i + 1) * model.length / (bots.list.length + 1));
+      b.car.reset(p.x, p.z, Math.atan2(p.tx, p.tz), model.heightAt(p.x, p.z));
+    });
+    S.showLine = false; S.showBoards = false; world.setAids(false, false);
+  }
 }
 
 // ------------------------------------------------------------------- race
@@ -124,7 +142,8 @@ function startRace() {
   if (bots) for (const b of bots.list) if (b.mesh) scene.remove(b.mesh);
   if (items) items.dispose();
   items = new Items(model, scene);
-  bots = new Bots(model, cfg.bots, S.carId);
+  const pool = S.grid === 'equal' ? CAR_ORDER.filter(id => PRESETS[id].tier === PRESETS[S.carId].tier && id !== S.carId) : null;
+  bots = new Bots(model, cfg.bots, S.carId, { pool });
   for (const b of bots.list) { b.mesh = buildCar(PRESETS[b.id]); scene.add(b.mesh); }
   race = new Race(model, [{ car, name: car.p.label, isPlayer: true }, ...bots.list.map(b => ({ car: b.car, name: b.name }))], cfg.laps);
   race.grid();
@@ -139,7 +158,7 @@ function startRace() {
 }
 
 const allCars = () => bots ? [car, ...bots.cars] : [car];
-const progOf = (c) => race ? race.progOf(c) : 0;
+const progOf = (c) => race ? race.progOf(c) : model.samples[model.nearest(c.x, c.z).i].s;
 
 // ------------------------------------------------------------------- timing (cruise)
 let lap = 0, bestTime = null, bestFrames = null, lastLap = null;
@@ -272,7 +291,7 @@ function frame() {
   if (car.stunT > 0) inp = { ...inp, throttle: 0 };
 
   // item: E / Shift / pad X — edge-triggered
-  const itemBtn = input.keys.has('e') || input.keys.has('shift') || !!(input.pad && input.pad.buttons[2] && input.pad.buttons[2].pressed);
+  const itemBtn = input.keys.has('e') || input.keys.has('shift') || !!(input.pad && ((input.pad.buttons[2] && input.pad.buttons[2].pressed) || (input.pad.buttons[4] && input.pad.buttons[4].pressed)));
   if (itemBtn && !itemHeld && items && car.item && !holding) {
     const used = items.use(car, allCars(), progOf);
     if (used) hud.toast(ITEM_INFO[used].label, 700);
@@ -291,8 +310,9 @@ function frame() {
       if (bots) {
         bots.step(STEP, env, allCars(), progOf, race ? race.progOf(car) : null, items, holding);
         if (model.collide) for (const c of bots.cars) model.collide(c);
-        collideCars(allCars(), (a, b, j) => { if ((a === car || b === car) && j > 400) rig.kick(Math.min(1, j / 6000)); });
+        collideCars(allCars(), (a, b, j) => { if ((a === car || b === car) && j > 400) { rig.kick(Math.min(1, j / 6000)); input.rumble(Math.min(1, j / 5000), 0.4, 140); } });
       }
+      if (props) props.step(STEP, allCars());
       acc -= STEP; steps++;
     }
     if (race) {
@@ -315,7 +335,12 @@ function frame() {
   const surf = model.surfaceAt(car.x, car.z);
   updateCarMesh(carMesh, car, dt, inp.brake > 0.05 || inp.handbrake > 0.5, time);
   if (bots) for (const b of bots.list) updateCarMesh(b.mesh, b.car, dt, b.out.brake > 0.05, time);
+  if (props) props.sync();
   emitFx(dt, surf);
+  // pad feedback: a shove on landing, a buzz under boost
+  if (car.landing > 0.4 && !wasLanding) input.rumble(0.7, 0.3, 160);
+  if (car.boostT > 0 && Math.random() < dt * 4) input.rumble(0.15, 0.6, 90);
+  if (input.padJustConnected) { input.padJustConnected = false; hud.toast('🎮 ' + (input.padName || 'CONTROLLER'), 1600); }
 
   ghostMesh.visible = !race && S.ghostOn && ghost && ghost.valid && started;
   if (ghostMesh.visible) {
@@ -425,7 +450,9 @@ function aidsLabel() {
 
 // --------------------------------------------------------------------- keys
 function handleKeys() {
-  if (input.tapped('c')) { rig.cycle(input.keys.has('shift') ? -1 : 1); hud.toast('CAM · ' + MODE_LABEL[rig.mode], 1200); }
+  if (input.tapped('c') || input.padTapped('y')) { rig.cycle(input.keys.has('shift') ? -1 : 1); hud.toast('CAM · ' + MODE_LABEL[rig.mode], 1200); }
+  if (input.padTapped('back')) { S.hudOn = !S.hudOn; document.body.classList.toggle('nohud', !S.hudOn); }
+  if (input.padTapped('start')) openMenu();
   if (input.tapped('h')) { S.hudOn = !S.hudOn; document.body.classList.toggle('nohud', !S.hudOn); }
   if (input.tapped('v')) { S.vertical = !S.vertical; document.body.classList.toggle('vertical', S.vertical); resize(); }
   if (input.tapped('l')) { S.showLine = !S.showLine; world.setAids(S.showLine, S.showBoards); hud.toast('LINE ' + (S.showLine ? 'ON' : 'OFF'), 1000); }
@@ -439,6 +466,7 @@ function handleKeys() {
   if (input.tapped('z')) { S.auto = !S.auto; hud.toast(S.auto ? 'AUTOPILOT — sit back' : 'AUTOPILOT OFF', 1400); }
   if (input.tapped('f')) { S.frozen = !S.frozen; if (S.frozen) rig.mode = 'orbit'; hud.toast(S.frozen ? 'FROZEN — drag to orbit' : 'ROLLING', 1200); }
   if (input.tapped('r')) { if (race && race.state === 'finished') startRace(); else if (race) rescue(); else resetCar(false); }
+  if (input.tapped('t') && props) props.reset();
   if (input.tapped('t')) { if (race) startRace(); else resetCar(true); }
   if (input.tapped('x')) { skid.clear(); smoke.clear(); hud.toast('MARKS CLEARED', 900); }
   if (input.tapped('n')) { S.skyIdx = (S.skyIdx + 1) % SKY_CYCLE.length; S.skyChosen = true; reloadSky(); }
@@ -523,6 +551,7 @@ if (q.has('grip')) S.stability = +q.get('grip');
 if (q.has('mode')) S.mode = q.get('mode');
 if (q.has('bots')) S.bots = +q.get('bots');
 if (q.has('laps')) S.laps = +q.get('laps');
+if (q.has('grid')) S.grid = q.get('grid');
 resize();
 if (q.has('go') || q.has('shorts')) {
   S.shorts = q.has('shorts');

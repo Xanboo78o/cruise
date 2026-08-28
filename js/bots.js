@@ -7,16 +7,20 @@ import { PRESETS, CAR_ORDER } from './presets.js';
 import { autoDrive, AUTO_AIDS } from './driver.js';
 
 export class Bots {
+  // opts: { pool: [ids] (default: everyone but you), pace: [lo, hi], items: bool }
   constructor(model, count, excludeId, opts = {}) {
     this.model = model;
     this.list = [];
-    const pool = CAR_ORDER.filter(id => id !== excludeId).sort(() => Math.random() - 0.5);
+    const base = (opts.pool && opts.pool.length ? opts.pool : CAR_ORDER.filter(id => id !== excludeId));
+    const pool = [...base].sort(() => Math.random() - 0.5);
+    const [plo, phi] = opts.pace ?? [0.84, 0.96];
+    this.items = opts.items ?? true;
     for (let i = 0; i < count; i++) {
       const id = pool[i % pool.length];
       const car = new Car(id, PRESETS);
       this.list.push({
-        id, car, mesh: null, name: PRESETS[id].label,
-        pace: 0.84 + Math.random() * 0.12,                // some are quick, some are Sunday drivers
+        id, car, mesh: null, name: PRESETS[id].label + (i >= pool.length ? ' ' + (Math.floor(i / pool.length) + 1) : ''),
+        pace: plo + Math.random() * (phi - plo),          // some are quick, some are Sunday drivers
         lane: (Math.random() - 0.5) * model.halfWidth * 0.8,
         laneWant: 0, laneT: 0,
         out: {}, itemT: 0, cap: 1, prog: 0,
@@ -74,7 +78,7 @@ export class Bots {
       c.step(dt, o, env, AUTO_AIDS);
 
       // --- items: hold it for a beat, then use it when it makes sense
-      if (c.item) {
+      if (c.item && this.items) {
         b.itemT += dt;
         const ready = b.itemT > 1 + Math.random() * 2;
         let go = false;

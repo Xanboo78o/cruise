@@ -225,3 +225,6 @@ body.nohud .tc { display: none; }
 #results .hint { margin-top: 12px; }
 
 .chips.sub { margin-top: 6px; }
+
+.nav.pad span { opacity: .55; }
+.nav.pad::after { content: 'A pick · B back · d-pad move'; color: var(--ink); letter-spacing: 2px; }

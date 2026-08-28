@@ -496,4 +496,30 @@ class CityWorld {
   }
 }
 
+// Things to hit. Hand-placed: a cone slalom on the boulevard, box stacks at the
+// docks, tyre walls round the skidpad, barrels at the junctions.
+export function cityProps() {
+  const out = [];
+  const line = (type, x1, z1, x2, z2, n) => { for (let i = 0; i < n; i++) { const t = n > 1 ? i / (n - 1) : 0; out.push({ type, x: x1 + (x2 - x1) * t, z: z1 + (z2 - z1) * t }); } };
+  const stack = (type, cx, cz, cols, rows, gap) => { for (let i = 0; i < cols; i++) for (let j = 0; j < rows; j++) out.push({ type, x: cx + (i - (cols - 1) / 2) * gap, z: cz + (j - (rows - 1) / 2) * gap }); };
+  // boulevard slalom (z = -80, the wide one), two lanes of cones
+  line('cone', -200, -70, 200, -70, 21);
+  line('cone', -180, -90, 180, -90, 19);
+  // the skidpad link and the pad itself: cones in a ring, tyres on the outside
+  for (let i = 0; i < 18; i++) { const a = i / 18 * Math.PI * 2; out.push({ type: 'cone', x: PAD.x + Math.cos(a) * 46, z: PAD.z + Math.sin(a) * 46 }); }
+  for (let i = 0; i < 26; i++) { const a = i / 26 * Math.PI * 2; out.push({ type: 'tire', x: PAD.x + Math.cos(a) * 72, z: PAD.z + Math.sin(a) * 72 }); }
+  // docks: box stacks on the waterfront road
+  stack('box', 300, 60, 3, 3, 1.4); stack('box', 300, -60, 3, 3, 1.4); stack('box', 300, -140, 4, 2, 1.4);
+  stack('box', 372, 30, 2, 2, 1.4);
+  // barrels at the big junctions
+  for (const [x, z] of [[-120, 40], [120, 40], [0, 160], [-120, -200], [120, -200], [240, 160]]) {
+    out.push({ type: 'barrel', x: x + 9, z: z + 9 }); out.push({ type: 'barrel', x: x - 9, z: z + 9 });
+    out.push({ type: 'barrel', x: x + 9, z: z - 9 }); out.push({ type: 'barrel', x: x - 9, z: z - 9 });
+  }
+  // tyres along the diagonal
+  line('tire', -220, 30, 40, -180, 14);
+  return out;
+}
+export function cityWalls() { return BUILDINGS.map(([x, z, w, d]) => [x, z, w, d]); }
+
 export function buildCity() { return new CityModel(); }
