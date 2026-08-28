@@ -126,6 +126,7 @@ function loadTrack(id, opts = {}) {
   paceMesh.visible = false;
   scene.add(paceMesh);
   setHeadlights(carMesh, skyKey === 'night');
+  setDriver(carMesh, S.oo || 'oobi');
 
   rig.setTrackCams(model);
   hud.prepareMap(model);
