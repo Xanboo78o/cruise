@@ -44,6 +44,31 @@ export function makeSky(scene, key) {
   return mesh;
 }
 
+// blend two sky presets by t — the live day uses this every frame
+function lerpCol(a, b, t) { return new THREE.Color(a).lerp(new THREE.Color(b), t); }
+export function skyForHour(hour) {
+  // 0 night → 5 dawn → 8 noon(ish) → 17 sunset → 20 night
+  const H = ((hour % 24) + 24) % 24;
+  const stops = [[0, 'night'], [5, 'night'], [6.5, 'dawn'], [9, 'noon'], [16, 'noon'], [18.5, 'sunset'], [20.5, 'night'], [24, 'night']];
+  let i = 0; while (i < stops.length - 2 && H >= stops[i + 1][0]) i++;
+  const [h0, a] = stops[i], [h1, b] = stops[i + 1];
+  const t = h1 > h0 ? (H - h0) / (h1 - h0) : 0;
+  const A = SKIES[a], B = SKIES[b];
+  const mix = (k) => lerpCol(A[k], B[k], t);
+  return { top: mix('top'), bot: mix('bot'), sun: mix('sun'), fog: mix('fog'),
+    fogNear: A.fogNear + (B.fogNear - A.fogNear) * t, fogFar: A.fogFar + (B.fogFar - A.fogFar) * t,
+    hemiSky: mix('hemiSky'), hemiGround: mix('hemiGround'), dir: mix('dir'), dirI: A.dirI + (B.dirI - A.dirI) * t, amb: A.amb + (B.amb - A.amb) * t,
+    dirPos: [0, 1, 2].map(k => A.dirPos[k] + (B.dirPos[k] - A.dirPos[k]) * t), night: t < 0.5 ? a === 'night' : b === 'night' };
+}
+export function tintSky(skyMesh, lights, scene, s) {
+  const u = skyMesh.material.uniforms;
+  u.top.value.copy(s.top); u.bot.value.copy(s.bot); u.sun.value.copy(s.sun); u.sunDir.value.set(...s.dirPos).normalize();
+  scene.fog.color.copy(s.fog); scene.fog.near = s.fogNear; scene.fog.far = s.fogFar;
+  lights.hemi.color.copy(s.hemiSky); lights.hemi.groundColor.copy(s.hemiGround); lights.hemi.intensity = s.amb * 2.2;
+  lights.dir.color.copy(s.dir); lights.dir.intensity = s.dirI;
+  lights.sky = { ...lights.sky, dirPos: s.dirPos };
+}
+
 export function applyLighting(scene, key) {
   const s = SKIES[key] || SKIES.sunset;
   scene.fog = new THREE.Fog(s.fog, s.fogNear, s.fogFar);

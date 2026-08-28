@@ -302,7 +302,11 @@ export class Screens {
         if (n.up) this.carIdx = (this.carIdx - C + N) % N;
         if (n.down) this.carIdx = (this.carIdx + C) % N;
         if (n.left || n.right || n.up || n.down) { S.carId = this.o.CAR_ORDER[this.carIdx]; this.renderCar(); this.showcaseCar(S.carId); }
-        if (n.ok) { if (S.mode === 'cruise') { S.track = 'sanoozi'; this.go(); } else if (S.mode === 'race' && this.o.onMap) this.o.onMap(); else this.show('track'); }
+        if (n.ok) {
+          const pr = this.o.progress;
+          if (pr && !pr.owns(S.carId)) { if (pr.buy(S.carId)) { this.renderCar(); this.o.onBuy && this.o.onBuy(S.carId); } else this.o.onNoCash && this.o.onNoCash(); }
+          else if (S.mode === 'cruise') { S.track = 'sanoozi'; this.go(); } else if (S.mode === 'race' && this.o.onMap) this.o.onMap(); else this.show('track');
+        }
         if (n.back) this.show('mode');
         break;
       }
@@ -362,7 +366,12 @@ export class Screens {
     document.getElementById('pickName').textContent = p.label;
     document.getElementById('pickTier').textContent = this.o.TIERS[p.tier] + ' · ' + p.drive.toUpperCase();
     document.getElementById('pickBlurb').textContent = p.blurb;
-    document.getElementById('pickIdx').textContent = (this.carIdx + 1) + ' / ' + this.o.CAR_ORDER.length;
+    const pr = this.o.progress;
+    const owned = !pr || pr.owns(id), price = PRICES[id];
+    document.getElementById('pickIdx').textContent = (this.carIdx + 1) + ' / ' + this.o.CAR_ORDER.length +
+      (price != null ? (owned ? '  ·  OWNED' : `  ·  $${price.toLocaleString()}  ·  ${pr && pr.data.cash >= price ? 'ENTER TO BUY' : 'NOT ENOUGH CASH'}`) : '') +
+      (pr ? `  ·  WALLET $${pr.data.cash.toLocaleString()}` : '');
+    document.getElementById('sCar').classList.toggle('locked', !owned);
     const n = st.norm[id], r = st.raw[id];
     const rows = [
       ['SPEED', n.speed, (r.speed * 2.237).toFixed(0) + ' mph'],

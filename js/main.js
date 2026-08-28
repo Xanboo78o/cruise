@@ -6,7 +6,7 @@ import { Car } from './car.js';
 import { PRESETS, CAR_ORDER, TIERS } from './presets.js';
 import { TrackModel } from './track.js';
 import { TRACKS, TRACK_ORDER } from './tracks.js';
-import { World, applyLighting, makeSky } from './world.js';
+import { World, applyLighting, makeSky, skyForHour, tintSky } from './world.js';
 import { buildCar, updateCarMesh, setCarOpacity, setHeadlights, placeStaticCar, setDriver } from './carmesh.js';
 import { SkidMarks, Smoke } from './fx.js';
 import { CameraRig, MODE_LABEL } from './camera.js';
@@ -68,6 +68,7 @@ let skid, smoke, items = null, bots = null, race = null, props = null;
 let freeRoam = null, worldRace = null, drone = null, mapScreen = null;   // the city, the race inside it, the fly-in
 let population = null, peds = null, traffic = null;                       // the Oo, on foot and in cars
 let challenges = null;                                                    // traps, drift zones, jumps, figurines, photos
+let lightsNight = false;
 const progress = new Progress();                                           // medals, cash, cars, stickers
 S.hour = 10;                                                              // the city's clock, 24 h every 20 real minutes
 const modelCache = new Map();
@@ -496,6 +497,8 @@ function frame() {
   if (world.update) world.update(camera.position.x, camera.position.z);
   if (freeRoam) {
     S.hour = (S.hour + dt * (24 / 1200)) % 24;
+    // the live day: sky, fog and light follow the clock (a race holds its own time)
+    if (!worldRace && skyMesh && lights) { const s = skyForHour(S.hour); tintSky(skyMesh, lights, scene, s); if (s.night !== lightsNight) { lightsNight = s.night; setHeadlights(carMesh, s.night); } }
     const everyone = traffic && !worldRace ? [...allCars(), ...traffic.cars] : allCars();
     if (peds) peds.update(dt, camera.position.x, camera.position.z, everyone, S.hour, worldRace ? worldRace.rc.gate : null);
     if (challenges && !worldRace) {
@@ -645,6 +648,9 @@ const screens = new Screens({
   // RACE mode lives in the world: after the car, the map
   onMap: () => { S.track = 'sanoozi'; attract = false; S.paused = false; screens.hide(); go(); setTimeout(() => openMap(), 60); },
   onOo: v => { S.oo = v; if (carMesh) setDriver(carMesh, v); try { localStorage.setItem('cruise.oo', v); } catch {} },
+  progress,
+  onBuy: id => { hud.toast('BOUGHT · ' + PRESETS[id].label, 1500); },
+  onNoCash: () => { hud.toast('NOT ENOUGH CASH — race for it', 1500); },
 });
 try { S.oo = localStorage.getItem('cruise.oo') || S.oo; } catch {}
 
