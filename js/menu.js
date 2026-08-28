@@ -107,6 +107,9 @@ export class Screens {
   // ----------------------------------------------------------- navigation
   show(name) {
     this.current = name;
+    // pick up whatever S says now (URL params, in-game changes) before drawing
+    const ci = this.o.CAR_ORDER.indexOf(this.o.S.carId); if (ci >= 0) this.carIdx = ci;
+    const ti = [...this.o.TRACK_ORDER, 'city'].indexOf(this.o.S.track); if (ti >= 0) this.trackIdx = ti;
     this.root.classList.add('on');
     for (const s of this.root.querySelectorAll('.screen')) s.classList.toggle('on', s.dataset.screen === name);
     if (name === 'mode') this.renderMode();
