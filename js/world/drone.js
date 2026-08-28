@@ -51,9 +51,11 @@ export class DroneIntro {
     };
     cr(a[1], b[1], c[1], d[1], u, out);
     cr(a[2], b[2], c[2], d[2], u, lookOut);
-    // never below the ground
+    // never below the ground — and never through a tower: downtown the floor is 30 m up
     const gy = this.T.height(out.x, out.z);
-    if (out.y < gy + 2.5) out.y = gy + 2.5;
+    const dist = this.T.districtAt(out.x, out.z);
+    const floor = dist && dist.fill === 'towers' ? 30 : 2.5;
+    if (out.y < gy + floor) out.y = gy + floor;
   }
 
   update(dt, camera) {

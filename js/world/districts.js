@@ -121,6 +121,48 @@ export class Districts {
     }
     // a big rotating sign in the middle of the square
     this.landmark = { x: 0, z: -910 };
+    this.streetDressing(d);
+  }
+
+  // pavements, lamps and parked cars along every street inside a district
+  streetDressing(d) {
+    const T = this.T;
+    const pav = new THREE.MeshLambertMaterial({ color: 0x9da2a8 });
+    const lampM = new THREE.MeshLambertMaterial({ color: 0x4a4d54 });
+    const headM = new THREE.MeshBasicMaterial({ color: this.night ? 0xffe0a0 : 0x9fa4ad });
+    const lampG = new THREE.CylinderGeometry(0.12, 0.16, 7, 5), headG = new THREE.BoxGeometry(1.4, 0.22, 0.5);
+    const poles = [];
+    for (const r of T.roads) {
+      if (r.type !== 'street' && r.type !== 'blvd') continue;
+      const pos = [], idx = [];
+      for (let s = 0; s <= r.L; s += 8) {
+        const p = T.pointAt(r, s);
+        if (p.x < d.x0 || p.x > d.x1 || p.z < d.z0 || p.z > d.z1) continue;
+        for (const side of [-1, 1]) {
+          const o1 = side * (r.T.w / 2 + 0.2), o2 = side * (r.T.w / 2 + 4.5);
+          const y = T.roadY(r, s) + 0.16;
+          const q = pos.length / 3;
+          pos.push(p.x + p.tz * o1, y, p.z - p.tx * o1, p.x + p.tz * o2, y, p.z - p.tx * o2);
+          if (s + 8 <= r.L) { const nxt = T.pointAt(r, s + 8); if (nxt.x >= d.x0 && nxt.x <= d.x1 && nxt.z >= d.z0 && nxt.z <= d.z1) idx.push(q, q + 2, q + 1, q + 2, q + 3, q + 1); }
+        }
+        if (s % 48 === 0) for (const side of [-1, 1]) poles.push([p.x + p.tz * side * (r.T.w / 2 + 2.4), p.z - p.tx * side * (r.T.w / 2 + 2.4), Math.atan2(p.tx, p.tz)]);
+      }
+      if (pos.length) {
+        const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); g.computeVertexNormals();
+        const m = new THREE.Mesh(g, pav); m.receiveShadow = true; this.group.add(m);
+      }
+    }
+    if (poles.length) {
+      const pi = new THREE.InstancedMesh(lampG, lampM, poles.length), hi = new THREE.InstancedMesh(headG, headM, poles.length);
+      const dm = new THREE.Object3D();
+      poles.forEach(([x, z, yaw], i) => {
+        const y = T.height(x, z);
+        dm.position.set(x, y + 3.5, z); dm.rotation.set(0, 0, 0); dm.updateMatrix(); pi.setMatrixAt(i, dm.matrix);
+        dm.position.set(x, y + 7.0, z); dm.rotation.set(0, yaw, 0); dm.updateMatrix(); hi.setMatrixAt(i, dm.matrix);
+      });
+      pi.castShadow = true; pi.frustumCulled = hi.frustumCulled = false;
+      this.group.add(pi, hi);
+    }
   }
 
   square(x, z) {
@@ -161,6 +203,7 @@ export class Districts {
   // ------------------------------------------------------------- houses
   // along every street inside the district, set back from the kerb, both sides
   houses(d) {
+    this.streetDressing(d);
     const cols = [0xf0ece0, 0xe9c9a0, 0xc9d8e6, 0xd9a6a0, 0xa9c9a0, 0xf2e6c8];
     for (const r of this.T.roads) {
       if (r.type !== 'street') continue;
