@@ -90,10 +90,13 @@ body.vertical #hud { left: 50%; transform: translateX(-50%); width: min(100vw, 5
 #menu {
   position: fixed; inset: 0; z-index: 20; overflow: auto;
   background: radial-gradient(1200px 700px at 70% -10%, #24304d 0%, #0a0d14 60%, #05070c 100%);
-  display: flex; align-items: center; justify-content: center; padding: 28px;
+  display: flex; align-items: flex-start; justify-content: center; padding: 28px;
+  -webkit-overflow-scrolling: touch;
 }
 #menu.hidden { display: none; }
-.menuInner { width: min(880px, 100%); }
+/* margin:auto centres it when it fits and lets it scroll to both ends when it
+   doesn't — align-items:center would clip the top and bottom off */
+.menuInner { width: min(880px, 100%); margin: auto; }
 h1 {
   font-size: 62px; font-weight: 800; letter-spacing: 14px; line-height: 1;
   background: linear-gradient(92deg, #ffd9a0, #ff8f6b 45%, #7ea6ff);
