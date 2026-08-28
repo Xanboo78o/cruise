@@ -184,7 +184,8 @@ function resetCar(toStart) {
   let p;
   if (m.spawn) {
     // the open world: drop at the spawn point (or back onto the nearest road)
-    const sp = toStart ? m.spawn() : (() => { const nr = m.nearest(car.x, car.z); return { x: nr.p.x, z: nr.p.z, yaw: Math.atan2(nr.p.tx, nr.p.tz) }; })();
+    let sp = toStart ? m.spawn() : (() => { const nr = m.nearest(car.x, car.z); return { x: nr.p.x, z: nr.p.z, yaw: Math.atan2(nr.p.tx, nr.p.tz) }; })();
+    if (toStart && DBG_AT) sp = DBG_AT;                  // ?at=x,z,yawDeg — drop anywhere (screenshots)
     car.reset(sp.x, sp.z, sp.yaw, m.heightAt(sp.x, sp.z) + 0.3);
     for (let i = 0; i < 90; i++) car.step(1 / 120, { throttle: 0, brake: 1, steer: 0, handbrake: 0 }, env, S.stability);
     started = false; rec.reset(); driftHold = 0; stuckT = 0;
@@ -555,6 +556,7 @@ addEventListener('resize', resize);
 // ?t=harbor&c=gt&mode=race&bots=7&laps=3&sky=3&go=1&shorts=1 — bookmarkable
 const q = new URLSearchParams(location.search);
 const DBG_INPUT = (q.has('steer') || q.has('thr')) ? { steer: +(q.get('steer') || 0), throttle: +(q.get('thr') || 0), brake: 0, handbrake: 0 } : null;
+const DBG_AT = q.has('at') ? (() => { const [x, z, yaw] = q.get('at').split(',').map(Number); return { x, z, yaw: (yaw || 0) * Math.PI / 180 }; })() : null;
 if (q.has('t')) S.track = q.get('t');
 if (q.has('c')) S.carId = q.get('c');
 if (q.has('sky')) { S.skyIdx = +q.get('sky'); S.skyChosen = true; }

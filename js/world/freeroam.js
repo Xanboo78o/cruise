@@ -57,4 +57,21 @@ export class FreeRoam {
     this.world = new WorldBuilder(this.T, scene, { sky: skyKey });
     return this.world;
   }
+
+  // buildings stop you — a shove, no bounce, nothing breaks
+  collide(car) {
+    const walls = this.world && this.world.walls; if (!walls) return false;
+    const r = 1.4;
+    for (const [bx, bz, bw, bd] of walls) {
+      const hx = bw / 2 + r, hz = bd / 2 + r;
+      const dx = car.x - bx, dz = car.z - bz;
+      if (Math.abs(dx) > hx || Math.abs(dz) > hz) continue;
+      const ox = hx - Math.abs(dx), oz = hz - Math.abs(dz);
+      if (ox < oz) { car.x = bx + Math.sign(dx || 1) * hx; const nx = Math.sign(dx || 1); const vn = car.vx * nx; if (vn < 0) car.vx -= vn * nx * 1.25; }
+      else { car.z = bz + Math.sign(dz || 1) * hz; const nz = Math.sign(dz || 1); const vn = car.vz * nz; if (vn < 0) car.vz -= vn * nz * 1.25; }
+      car.syncBody(); car.r *= 0.5; car.bumpT = Math.max(car.bumpT, 0.3);
+      return true;
+    }
+    return false;
+  }
 }

@@ -6,6 +6,7 @@
 import * as THREE from 'three';
 import { WORLD, ROAD_TYPES, DISTRICTS, COAST, CANYON } from './spec.js';
 import { vnoise } from '../terrain.js';
+import { Districts } from './districts.js';
 
 const sm = t => { t = Math.max(0, Math.min(1, t)); return t * t * (3 - 2 * t); };
 function hash2(x, z) { const h = Math.sin(x * 127.1 + z * 311.7) * 43758.5453; return h - Math.floor(h); }
@@ -21,6 +22,8 @@ export class WorldBuilder {
     this.buildRoads();
     this.buildForest();
     this.buildBeachAndPier();
+    this.districts = new Districts(T, this.group, this.sky === 'night');
+    this.walls = this.districts.walls;
   }
 
   // ---------------------------------------------------------------- terrain
