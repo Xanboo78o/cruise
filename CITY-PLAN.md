@@ -21,10 +21,27 @@ plan to fix it. Everything below is a decision unless it's under **Open**.
 The bones are fine — coast, mountain, canyon, harbour, venues, ring position.
 It's the **fabric** between them that doesn't exist.
 
+### Adam's second note (same day)
+
+> "all buildings need variation, this game should feel like youre just a normal
+> person, and in a race, a bunch of hillbillies in cars just flying down roads
+> semi legally lol … roads also need to be wider and have lines, and actually be
+> thick, not just paper thin grey layer with attributes"
+
+So, on top of the table: **no two buildings alike**; **you are a normal person in
+a normal city** (cruise = ordinary life going on around you); **a race is a
+street meet, not a sanctioned event** — no concrete walls, no plugged side
+streets, no gate arch: a pack of Oo in their cars flying down public roads
+through live traffic, semi-legally, cops optional; and **roads are wide slabs
+with lines and kerbs**, not a flat grey ribbon. Another Claude owns the look
+(filters, textures, materials, post — "realistic-ish, dashcam"); this plan owns
+the geometry and the layout and leaves clean UVs and real surfaces for them.
+
 ## 2. How a city works — the eight rules the rebuild follows
 
 1. **Hierarchy.** Freeway → boulevard → avenue → street → alley. Each has its own
-   width, markings, speed, and what fronts it. Races run on the top three tiers.
+   width, markings, speed, and what fronts it. Adam wants wide: freeway 32 ·
+   boulevard 36 · avenue 26 · street 18 · alley 9. Races run on the top three.
 2. **Small blocks in the middle, bigger going out.** 90 × 110 m downtown, 140 m
    midtown, 150–200 m suburbs, 300–400 m industrial.
 3. **A density gradient, not rectangles.** Tower core → mid-rise → low commercial
@@ -42,6 +59,23 @@ It's the **fabric** between them that doesn't exist.
 8. **Legibility** (Kevin Lynch): paths, edges, districts, nodes, landmarks.
    Wherever you are you can see one of: the tower, the bridge, the stadium
    lights, the pier, the canyon gash. You should never need the map to get home.
+9. **No two buildings alike.** Silhouette × height × colour × facade × roof ×
+   setback × sign, and a rule: nothing repeats within three lots or across the
+   street. Corners, mid-block and the ends of a street are different kinds.
+10. **You're a normal person.** You start at home (your Oo's house, car in the
+    drive), the city is going about its day — traffic that stops at lights and
+    indicates, buses, pedestrians crossing at crosswalks, a cop parked at the
+    gas station, people at the beach. The race is what you *choose* to do in it.
+11. **A race is a street meet.** No walls, no plugs, no arch. A meet spot (a
+    parking lot, a gas station, the pier lot, the canyon lookout) with the Oo
+    and their cars, engines running, a flare drop → GO; the route is public
+    roads through live traffic; you follow the pack and the checkpoint arrows;
+    cops notice if the chaos meter fills. Walls only where they'd really be
+    (the speedway, the airfield, the mine).
+12. **Roads are slabs.** A road is a solid kerbed body, not a decal: 0.15 m
+    kerb lip, pavements a step up, crowned surface, painted lines (centre,
+    lane dashes, edge, stop lines, crosswalks, turn arrows) as geometry on top,
+    gutters and drains. From a dashcam at wheel height the kerb is what sells it.
 
 ## 3. The new plan of San Oozi (district by district)
 
@@ -81,8 +115,12 @@ the ring.
 
 ## 4. Systems to build (what changes in the code)
 
-- **A. Road hierarchy** — `spec.js` gets `avenue`, `alley`, `ramp`, `bridge`
-  types; per-type width, kerb, markings (centre line / lanes / median), speed.
+- **A. Road hierarchy + road slabs** — `spec.js` gets `avenue`, `alley`, `ramp`,
+  `bridge` types; per-type width, lanes, kerb, median, speed. `build.js`
+  roads become solid bodies: crowned deck + kerb walls + pavement step, painted
+  lines as thin geometry (centre, lane dashes, edge, stop lines, crosswalks,
+  arrows), proper UVs (metres along / across) so the look Claude can texture it.
+  The physics height (`terrain.roadY`) gains the kerb lip so a wheel feels it.
 - **B. Grid primitive** — a hand-written `G({origin, rot, nx, nz, dx, dz, type,
   skip})` that expands into listed streets. Every number is a hand decision,
   checked in mapview; curving suburb locals stay hand-drawn point lists.
@@ -92,10 +130,14 @@ the ring.
   stop signs at locals. Traffic obeys signals (stop on red).
 - **D. Blocks as first-class** — derive block polygons (faces of the street
   graph) → each block gets a use from its density band → lots along each edge →
-  a building placed per lot, facing the street. Building kit = a few silhouettes
-  × palette × facade textures (shopfront ground floor, windows above, roof
-  plant), all **instanced**. Parking lots (asphalt + bays + parked cars), gas
-  stations, strip malls, dealerships are kit pieces too.
+  a building placed per lot, facing the street. Building kit = ~20 silhouettes
+  (slab, tower-on-podium, stepped, L, courtyard, shopfront row, warehouse,
+  bungalow, two-storey, garage-front…) × height × 12-colour palette × facade
+  (shopfront / windows / brick / stucco / glass) × roof (flat, plant, parapet,
+  pitched, awning) × setback × sign, all **instanced** by piece; a no-repeat
+  rule within three lots. Parking lots (asphalt + bays + parked cars), gas
+  stations, strip malls, dealerships, schools, the stadium are kit pieces too.
+  Materials stay simple and UV'd so the look Claude can texture them.
 - **E. Terrain** — drop the plateaus. Districts become a max-grade cap (3 %
   downtown, 12 % hills) blended over 300 m; the road cut/fill already works.
 - **F. Freeway layer** — an elevated ribbon: embankment mesh where < 4 m above
@@ -107,9 +149,14 @@ the ring.
 - **H. Performance** — everything instanced and chunked per 300 m cell like the
   forest; far blocks drop to flat boxes. Target: ~3 000 buildings + ~2 000
   parked cars + signals at 60 fps, and cheaper still at 360p dashcam.
-- **I. Adapt what exists** — traffic junction table works off the graph already;
-  race side-street plugs come from the block graph (many more side streets);
-  the Oo's homes/jobs re-seed onto the new lots; challenges re-placed.
+- **I. Races become street meets** — `dressing.js` drops walls/plugs/arch for
+  everything but the real venues; a `meet` per race (spot, parked rivals with
+  their Oo, flare, crowd on the pavement); the route stays a `Route` but the
+  side streets stay open — the line + checkpoint arrows + the pack are the
+  guidance; traffic keeps flowing on the route; chaos → cops already exists.
+  Traffic junction table works off the graph already; the Oo's homes/jobs
+  re-seed onto the new lots; the player spawns at their Oo's home; challenges
+  re-placed.
 - **J. Assets** — per *stock assets, not generated*: pull Kenney's CC0 City Kits
   (Commercial, Suburban, Industrial, Roads) before authoring anything; author
   only what the kits lack, in their style, headless in Blender.
@@ -126,9 +173,16 @@ the ring.
 6. **Street life**: signals traffic obeys, parked cars, trees, bus stops, signs.
 7. **Re-home** the 12 races, challenges, figurines, Oo homes/jobs; re-validate
    every race with `sim.mjs` + `trace.mjs`.
-8. **Perf pass**, then bring the dashcam look across from the lab.
+8. **Perf pass**; the look (textures, filters, dashcam) is the other Claude's
+   track and lands whenever it's ready — the geometry here is built for it.
 
 Phase 1–2 first, then STOP and drive it before touching 3–8.
+
+**Who touches what** (two Claudes in one repo): this plan owns `world/spec.js`,
+`world/districts.js`, `world/terrain.js`, `world/dressing.js`, road geometry in
+`world/build.js`, `world/races.js`. The look Claude owns materials, textures,
+lighting, `post.js`, sky/fog. Where both need `build.js`, geometry and material
+stay in separate functions, and both check `git status` before touching it.
 
 ## 6. Open (Adam's calls)
 
@@ -143,6 +197,5 @@ Phase 1–2 first, then STOP and drive it before touching 3–8.
 3. **The freeway.** Fully elevated everywhere (huge payoff, biggest job), or
    embanked at grade with curves and ramps, elevated only for the harbour viaduct
    and the bridge? My vote: the second.
-4. **Road width vs the arcade.** v3 wanted 24–34 m tracks. Boulevards, avenues
-   and the freeway stay wide (18–30 m) and carry the races; local streets go to
-   12 m and are meant to be slow and twisty (GTA back streets). OK?
+4. ~~Road width vs the arcade~~ — **answered: wider.** Widths in rule 1 are the
+   wide set (streets 18 m, avenues 26, boulevards 36, freeway 32); alleys 9.
