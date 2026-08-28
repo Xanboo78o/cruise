@@ -213,6 +213,29 @@ function loadAlien(variant) {
   return alienCache.get(variant);
 }
 export function loadAlienMesh(variant) { return loadAlien(variant); }
+
+// stickers: a strip on the roof with whatever you've earned
+export function setStickers(mesh, list) {
+  const u = mesh.userData;
+  if (u.stickerMesh) { mesh.remove(u.stickerMesh); u.stickerMesh = null; }
+  if (!list || !list.length) return;
+  const cv = document.createElement('canvas'); cv.width = 256; cv.height = 64;
+  const g = cv.getContext('2d'); g.fillStyle = 'rgba(0,0,0,0)'; g.clearRect(0, 0, 256, 64);
+  const pal = ['#ff9a5c', '#7ea6ff', '#ffd98a', '#ff6b8f', '#6fe3a0', '#ffe066'];
+  list.slice(0, 6).forEach((s, i) => {
+    g.fillStyle = pal[i % pal.length]; g.beginPath(); g.roundRect(4 + i * 42, 8, 38, 48, 8); g.fill();
+    g.fillStyle = '#151820'; g.font = 'bold 11px monospace'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    const w = String(s).split(' ');
+    g.fillText(w[0].slice(0, 6), 23 + i * 42, w.length > 1 ? 26 : 32); if (w.length > 1) g.fillText(w[1].slice(0, 6), 23 + i * 42, 42);
+  });
+  const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
+  const p = u.preset;
+  const plane = new THREE.Mesh(new THREE.PlaneGeometry(Math.min(p.track * 0.7, 1.3), Math.min(p.track * 0.7, 1.3) * 0.25), new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false }));
+  plane.rotation.x = -Math.PI / 2; plane.rotation.z = Math.PI / 2;
+  plane.position.set(0, 0.4 + p.tyre.rf * 0.6 + 1.3, -p.lr * 0.3);
+  plane.renderOrder = 3;
+  mesh.add(plane); u.stickerMesh = plane;
+}
 export function setDriver(mesh, variant) {
   const u = mesh.userData;
   if (u.driver) { mesh.remove(u.driver); u.driver = null; }

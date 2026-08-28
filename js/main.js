@@ -7,7 +7,7 @@ import { PRESETS, CAR_ORDER, TIERS } from './presets.js';
 import { TrackModel } from './track.js';
 import { TRACKS, TRACK_ORDER } from './tracks.js';
 import { World, applyLighting, makeSky, skyForHour, tintSky } from './world.js';
-import { buildCar, updateCarMesh, setCarOpacity, setHeadlights, placeStaticCar, setDriver } from './carmesh.js';
+import { buildCar, updateCarMesh, setCarOpacity, setHeadlights, placeStaticCar, setDriver, setStickers } from './carmesh.js';
 import { SkidMarks, Smoke } from './fx.js';
 import { CameraRig, MODE_LABEL } from './camera.js';
 import { Input } from './input.js';
@@ -23,6 +23,7 @@ import { RaceDressing } from './world/dressing.js';
 import { DroneIntro } from './world/drone.js';
 import { MapScreen } from './world/mapscreen.js';
 import { Arrival } from './world/arrival.js';
+import { Cops } from './world/cops.js';
 import { Population } from './world/oo.js';
 import { Peds } from './world/peds.js';
 import { Traffic } from './world/traffic.js';
@@ -69,6 +70,7 @@ let carMesh, ghostMesh, paceMesh, world, model, skyMesh, lights;
 let skid, smoke, items = null, bots = null, race = null, props = null;
 let freeRoam = null, worldRace = null, drone = null, mapScreen = null;   // the city, the race inside it, the fly-in
 let arrival = null;                                                       // the saucer, once
+let cops = null;                                                          // chaos has consequences
 let population = null, peds = null, traffic = null;                       // the Oo, on foot and in cars
 let challenges = null;                                                    // traps, drift zones, jumps, figurines, photos
 let lightsNight = false, lastDistrict = null, gateHold = 0;
@@ -109,6 +111,7 @@ function clearScene() {
   if (props) props.dispose();
   if (peds) { peds.dispose(); peds = null; }
   if (challenges) { challenges.dispose(); challenges = null; }
+  if (cops) { if (cops.chase && cops.chase.mesh) scene.remove(cops.chase.mesh); cops = null; }
   if (traffic) { for (const f of traffic.list) if (f.mesh) scene.remove(f.mesh); traffic = null; }
   for (const o of [...scene.children]) scene.remove(o);
   scene.children.length = 0;
@@ -145,6 +148,7 @@ function loadTrack(id, opts = {}) {
   scene.add(paceMesh);
   setHeadlights(carMesh, skyKey === 'night');
   setDriver(carMesh, S.oo || 'oobi');
+  setStickers(carMesh, progress.data.stickers);
 
   rig.setTrackCams(model);
   hud.prepareMap(model);
@@ -170,6 +174,10 @@ function startCruise() {
     traffic.onAdd = f => { f.mesh = buildCar(PRESETS[f.car.presetName]); setDriver(f.mesh, f.oo.variant); scene.add(f.mesh); };
     traffic.onRemove = f => { scene.remove(f.mesh); f.mesh = null; };
     traffic.populate(car.x, car.z, env, [car]);
+    cops = new Cops(model.T, env);
+    cops.onStart = ch => { ch.mesh = buildCar(PRESETS.cop); setDriver(ch.mesh, 'oodi'); scene.add(ch.mesh); hud.toast('🚨 THE COPS', 2000); input.rumble(0.8, 0.8, 300); };
+    cops.onEnd = (ch, how) => { if (ch.mesh) scene.remove(ch.mesh); };
+    peds.onBounce = (a, c) => { if (c === car) { cops.add('oo'); input.rumble(0.5, 0.2, 90); if (Math.random() < 0.35) hud.toast(['OO!', 'HA!', 'WHEEE', 'AGAIN!', 'NICE ONE'][Math.floor(Math.random() * 5)] + '  — ' + a.name, 1100); } };
     if (challenges) challenges.dispose();
     challenges = new ChallengeWorld(model.T, scene, progress);
     model.ramps = challenges;                                  // the ramps are part of the ground
@@ -447,11 +455,19 @@ function frame() {
         if (model.collide) for (const c of bots.cars) model.collide(c);
         collideCars(allCars(), (a, b, j) => { if ((a === car || b === car) && j > 400) { rig.kick(Math.min(1, j / 6000)); input.rumble(Math.min(1, j / 5000), 0.4, 140); } });
       }
-      if (props) props.step(STEP, allCars());
+      if (props) { const before = props.list.filter(p => !p.asleep).length; props.step(STEP, allCars()); const after = props.list.filter(p => !p.asleep).length; if (cops && after > before) cops.add('prop', after - before); }
       if (traffic && !worldRace) {
-        traffic.step(STEP, env, [car]);
+        traffic.step(STEP, env, cops && cops.car ? [car, cops.car] : [car]);
         if (model.collide) for (const c of traffic.cars) model.collide(c);
-        collideCars([car, ...traffic.cars], (a, b, j) => { if ((a === car || b === car) && j > 400) { rig.kick(Math.min(1, j / 6000)); input.rumble(Math.min(1, j / 5000), 0.4, 140); } });
+        const onRoad = cops && cops.car ? [car, cops.car, ...traffic.cars] : [car, ...traffic.cars];
+        collideCars(onRoad, (a, b, j) => { if ((a === car || b === car) && j > 400) { rig.kick(Math.min(1, j / 6000)); input.rumble(Math.min(1, j / 5000), 0.4, 140); if (cops && a !== cops.car && b !== cops.car) cops.add('traffic', Math.min(2, j / 3000)); } });
+        if (cops) {
+          if (cops.pulled > 0) { car.vx = car.vz = 0; car.u = car.v = 0; }
+          const ev = cops.update(STEP, car);
+          if (ev && ev.event === 'pulled') { progress.earn(-Math.min(ev.fine, progress.data.cash)); hud.toast(`PULLED · FINE $${ev.fine}`, 2600); input.rumble(0.9, 0.9, 400); }
+          if (ev && ev.event === 'lost') hud.toast('LOST THEM', 1800);
+          if (cops.car && cops.chase.mesh) { if (model.collide) model.collide(cops.car); }
+        }
       }
       acc -= STEP; steps++;
     }
@@ -468,6 +484,9 @@ function frame() {
           progress.result('race:' + worldRace.rc.id, n - pos, medal);
           if (race.player.best != null) cloud.pushBest('lap:' + worldRace.rc.id, -race.player.best, (S.oo || 'oo').toUpperCase(), S.carId);
           hud.toast(`P${pos} · +$${cash}`, 3000);
+          if (pos === 1 && progress.sticker('WINNER')) { hud.toast('STICKER · WINNER', 2000); setStickers(carMesh, progress.data.stickers); }
+          if (pos <= 3 && progress.sticker('PODIUM')) { hud.toast('STICKER · PODIUM', 2000); setStickers(carMesh, progress.data.stickers); }
+          if (worldRace.rc.kind === 'touge' && pos === 1 && progress.sticker('TOUGE KING')) setStickers(carMesh, progress.data.stickers);
         }
       }
       const st = race.standings();
@@ -548,11 +567,18 @@ function frame() {
         const medal = ev.medal ? ['', '🥉', '🥈', '🥇', '💎'][ev.medal] + ' ' : '';
         hud.toast(`${medal}${ev.name} · ${ev.value || ''} · +$${ev.cash}`, 2400);
         input.rumble(0.4, 0.5, 120);
+        if (ev.medal === 4 && progress.sticker(ev.kind.toUpperCase() + ' ACE')) setStickers(carMesh, progress.data.stickers);
+        if (ev.kind === 'fig' && progress.count('fig') >= 10 && progress.sticker('COLLECTOR')) setStickers(carMesh, progress.data.stickers);
       }
     }
     if (traffic && !worldRace) {
       if (Math.random() < dt * 0.5) traffic.populate(car.x, car.z, env, [car]);
       for (const f of traffic.list) if (f.mesh) updateCarMesh(f.mesh, f.car, dt, f.out.brake > 0.05, time);
+      if (cops && cops.car && cops.chase.mesh) {
+        updateCarMesh(cops.chase.mesh, cops.car, dt, false, time);
+        // the lights: red / blue on the roof
+        const l = cops.chase.mesh.userData.lights; if (l) for (let i = 0; i < l.length; i++) l[i].material.color.setHex(Math.sin(cops.chase.siren * 14 + i * Math.PI) > 0 ? 0xff2020 : 0x2060ff);
+      }
     }
   }
   if (skyMesh) skyMesh.position.copy(camera.position);
@@ -639,6 +665,7 @@ function aidsLabel() {
   if (S.auto) bits.push('AUTO');
   if (S.frozen) bits.push('FROZEN');
   if (freeRoam) bits.unshift('$' + progress.data.cash.toLocaleString());
+  if (cops && cops.chaos > 8) bits.unshift((cops.chase ? '🚨 ' : '') + 'CHAOS ' + Math.round(cops.chaos) + '%');
   bits.push('AIDS ' + Math.round(S.stability * 100) + '%');
   bits.push(MODE_LABEL[rig.mode]);
   return bits.join(' · ');
