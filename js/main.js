@@ -25,6 +25,8 @@ import { MapScreen } from './world/mapscreen.js';
 import { Population } from './world/oo.js';
 import { Peds } from './world/peds.js';
 import { Traffic } from './world/traffic.js';
+import { ChallengeWorld } from './world/challenges.js';
+import { Progress } from './world/progress.js';
 import { autoDrive, AUTO_AIDS } from './driver.js';
 import { Items, ITEM_INFO } from './items.js';
 import { Bots } from './bots.js';
@@ -65,6 +67,8 @@ let carMesh, ghostMesh, paceMesh, world, model, skyMesh, lights;
 let skid, smoke, items = null, bots = null, race = null, props = null;
 let freeRoam = null, worldRace = null, drone = null, mapScreen = null;   // the city, the race inside it, the fly-in
 let population = null, peds = null, traffic = null;                       // the Oo, on foot and in cars
+let challenges = null;                                                    // traps, drift zones, jumps, figurines, photos
+const progress = new Progress();                                           // medals, cash, cars, stickers
 S.hour = 10;                                                              // the city's clock, 24 h every 20 real minutes
 const modelCache = new Map();
 
@@ -91,6 +95,7 @@ function clearScene() {
   if (items) items.dispose();
   if (props) props.dispose();
   if (peds) { peds.dispose(); peds = null; }
+  if (challenges) { challenges.dispose(); challenges = null; }
   if (traffic) { for (const f of traffic.list) if (f.mesh) scene.remove(f.mesh); traffic = null; }
   for (const o of [...scene.children]) scene.remove(o);
   scene.children.length = 0;
@@ -152,6 +157,9 @@ function startCruise() {
     traffic.onAdd = f => { f.mesh = buildCar(PRESETS[f.car.presetName]); setDriver(f.mesh, f.oo.variant); scene.add(f.mesh); };
     traffic.onRemove = f => { scene.remove(f.mesh); f.mesh = null; };
     traffic.populate(car.x, car.z, env, [car]);
+    if (challenges) challenges.dispose();
+    challenges = new ChallengeWorld(model.T, scene, progress);
+    model.ramps = challenges;                                  // the ramps are part of the ground
     return;
   }
   if (model.def.id === 'city') {
@@ -429,7 +437,17 @@ function frame() {
     if (race) {
       race.update(dt);
       if (race.lastEvent === 'go') { hud.toast('', 1); race.lastEvent = null; }
-      if (race.lastEvent === 'finish') { race.lastEvent = null; }
+      if (race.lastEvent === 'finish') {
+        race.lastEvent = null;
+        if (worldRace) {
+          const pos = race.player.pos, n = race.entrants.length;
+          const cash = [0, 1500, 1000, 700, 400][Math.min(pos, 4)] || 250;
+          progress.raceDone(pos, n); progress.earn(cash);
+          const medal = pos === 1 ? 4 : pos === 2 ? 3 : pos === 3 ? 2 : 1;
+          progress.result('race:' + worldRace.rc.id, n - pos, medal);
+          hud.toast(`P${pos} · +$${cash}`, 3000);
+        }
+      }
       const st = race.standings();
       items.update(dt, st.map((e, i) => ({ car: e.car, rank01: st.length > 1 ? i / (st.length - 1) : 0.5 })));
     } else updateTiming(dt);
@@ -480,6 +498,15 @@ function frame() {
     S.hour = (S.hour + dt * (24 / 1200)) % 24;
     const everyone = traffic && !worldRace ? [...allCars(), ...traffic.cars] : allCars();
     if (peds) peds.update(dt, camera.position.x, camera.position.z, everyone, S.hour, worldRace ? worldRace.rc.gate : null);
+    if (challenges && !worldRace) {
+      const ev = challenges.update(dt, car, camera);
+      if (ev) {
+        progress.earn(ev.cash || 0);
+        const medal = ev.medal ? ['', '🥉', '🥈', '🥇', '💎'][ev.medal] + ' ' : '';
+        hud.toast(`${medal}${ev.name} · ${ev.value || ''} · +$${ev.cash}`, 2400);
+        input.rumble(0.4, 0.5, 120);
+      }
+    }
     if (traffic && !worldRace) {
       if (Math.random() < dt * 0.5) traffic.populate(car.x, car.z, env, [car]);
       for (const f of traffic.list) if (f.mesh) updateCarMesh(f.mesh, f.car, dt, f.out.brake > 0.05, time);
@@ -568,6 +595,7 @@ function aidsLabel() {
   if (!race && S.paceOn) bits.push('PACE ' + Math.round(S.pace * 100) + '%');
   if (S.auto) bits.push('AUTO');
   if (S.frozen) bits.push('FROZEN');
+  if (freeRoam) bits.unshift('$' + progress.data.cash.toLocaleString());
   bits.push('AIDS ' + Math.round(S.stability * 100) + '%');
   bits.push(MODE_LABEL[rig.mode]);
   return bits.join(' · ');

@@ -25,12 +25,12 @@ export class DroneIntro {
     // 0: high above the gate, looking down the road
     keys.push([0.00, at(0.0, 60, -40), at(0.15, 10)]);
     // 1: dive to low and fast down the first stretch
-    keys.push([0.18, at(0.06, 9, 6), at(0.16, 4)]);
-    keys.push([0.42, at(0.26, 7, -5), at(0.36, 3)]);
+    keys.push([0.18, at(0.06, 16, 4), at(0.16, 4)]);
+    keys.push([0.42, at(0.26, 14, -4), at(0.36, 3)]);
     // 2: swing wide and high over a corner (the sharpest in the first half)
     let tight = 0.5, minR = 1e9;
     for (let f = 0.3; f < 0.7; f += 0.02) { const p = r.sampleAtDistance(f * L); const R = Math.abs(p.k) > 1e-6 ? 1 / Math.abs(p.k) : 1e9; if (R < minR) { minR = R; tight = f; } }
-    keys.push([0.62, at(tight, 45, 70), at(tight + 0.03, 2)]);
+    keys.push([0.62, at(tight, 55, 50), at(tight + 0.03, 2)]);
     // 3: back over the gate and down onto the grid behind the player
     keys.push([0.86, at(0.0, 30, 30), gridV.clone().add(new THREE.Vector3(0, 2, 0))]);
     keys.push([1.00, new THREE.Vector3(g.x - Math.sin(g.yaw) * 9, g.y + 3.5, g.z - Math.cos(g.yaw) * 9), new THREE.Vector3(g.x + Math.sin(g.yaw) * 6, g.y + 1.1, g.z + Math.cos(g.yaw) * 6)]);

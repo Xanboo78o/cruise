@@ -9,7 +9,7 @@ import { WorldBuilder } from './build.js';
 export class FreeRoam {
   constructor() {
     this.T = new WorldTerrain();
-    this.terrain = { height: (x, z) => this.T.height(x, z), normal: (x, z, out = {}) => this.normal(x, z, out), bump: (x, z, surf) => this.bump(x, z, surf) };
+    this.terrain = { height: (x, z) => this.heightAt(x, z), normal: (x, z, out = {}) => this.normal(x, z, out), bump: (x, z, surf) => this.bump(x, z, surf) };
     this.def = { id: 'sanoozi', name: 'SAN OOZI', sky: 'noon', startIndex: 0, closed: false, width: 30 };
     this.closed = false;
     this.halfWidth = 15;
@@ -23,11 +23,11 @@ export class FreeRoam {
     this.districts = DISTRICTS;
   }
 
-  heightAt(x, z) { return this.T.height(x, z); }
+  heightAt(x, z) { return this.T.height(x, z) + (this.ramps ? this.ramps.heightAdd(x, z) : 0); }
   surfaceAt(x, z) { return this.T.surfaceAt(x, z); }
   normal(x, z, out) {
     const e = 1.6;
-    const hL = this.T.height(x - e, z), hR = this.T.height(x + e, z), hD = this.T.height(x, z - e), hU = this.T.height(x, z + e);
+    const hL = this.heightAt(x - e, z), hR = this.heightAt(x + e, z), hD = this.heightAt(x, z - e), hU = this.heightAt(x, z + e);
     const nx = (hL - hR) / (2 * e), nz = (hD - hU) / (2 * e), inv = 1 / Math.hypot(nx, 1, nz);
     out.x = nx * inv; out.y = inv; out.z = nz * inv; return out;
   }
