@@ -29,6 +29,8 @@ const harbor = {
   width: 30, scale: 1.7, yScale: 1.4,
   startIndex: 0.06,
   sky: 'sunset',
+  jumps: [{ atFrac: 0.10, len: 32, h: 3.0 }],            // on the main straight, lands with 150 m to spare
+  whoops: [{ atFrac: 0.75, len: 120, count: 4, h: 0.38 }],
   pts: [
     // main straight, uphill, heading north
     p(-180, -92, 0.5), p(-180, -40, 1.6), p(-180, 10, 3.0), p(-180, 60, 4.4), p(-180, 100, 5.2),
@@ -90,21 +92,21 @@ const canyon = {
 const seawall = {
   id: 'seawall',
   name: 'SEAWALL',
-  blurb: '1 km · huge and fast · the warm-up',
+  blurb: '1 km · huge and fast · rolling · the warm-up',
   closed: true,
-  width: 34, scale: 1.8,
+  width: 34, scale: 1.8, yScale: 1.0,
   startIndex: 0.08,
   sky: 'noon',
   profile: { vMax: 66, aLat: 16 },
   pts: [
-    p(-90, -20, 0), p(-90, 14, 0), p(-90, 50, 0),
-    ...arc(-50, 50, 40, 180, 90).slice(1),            // -> (-50, 90)
-    p(-4, 96, 0), p(40, 90, 0),
-    ...arc(40, 50, 40, 90, 0).slice(1),               // -> (80, 50)
+    p(-90, -20, 0), p(-90, 14, 1), p(-90, 50, 2.5),
+    ...arc(-50, 50, 40, 180, 90, 3, 5).slice(1),      // -> (-50, 90), climbing
+    p(-4, 96, 6), p(40, 90, 5),
+    ...arc(40, 50, 40, 90, 0, 4, 1).slice(1),         // -> (80, 50), dropping
     p(80, 20, 0), p(80, -10, 0),
-    ...arc(44, -10, 36, 0, -90).slice(1),             // -> (44, -46)
+    ...arc(44, -10, 36, 0, -90, 0, 0).slice(1),       // -> (44, -46)
     p(10, -50, 0), p(-30, -44, 0), p(-64, -46, 0),
-    ...arc(-64, -20, 26, -90, -180).slice(1, -1),     // last point == pts[0]
+    ...arc(-64, -20, 26, -90, -180, 0, 0).slice(1, -1),
   ],
   props: { trees: 'palm', barrier: 'block', crowd: false },
 };
@@ -122,10 +124,12 @@ const oval = {
   startIndex: 0.05,
   sky: 'noon',
   profile: { vMax: 80, aLat: 17 },
+  jumps: [{ atFrac: 0.66, len: 32, h: 3.0 }],
+  tunnels: [{ atFrac: 0.86, len: 110 }],
   pts: [
-    p(-260, -130, 0), p(0, -130, 0), p(260, -130, 0),
+    p(-260, -130, 0), p(-100, -130, 3), p(60, -130, 3.5), p(260, -130, 0),
     ...arc(260, 0, 130, -90, 90, 0, 0, 8).slice(1),
-    p(0, 130, 0), p(-260, 130, 0),
+    p(100, 130, 0), p(-40, 130, 4), p(-260, 130, 0),
     ...arc(-260, 0, 130, 90, 270, 0, 0, 8).slice(1, -1),
   ],
   props: { trees: 'palm', barrier: 'tire', crowd: true },
@@ -145,6 +149,8 @@ const touge = {
   sky: 'dawn',
   rough: 1.0,
   profile: { vMax: 62, aLat: 16 },
+  jumps: [{ atFrac: 0.012, len: 20, h: 2.2 }],           // over the start line
+  tunnels: [{ atFrac: 0.68, len: 100 }],
   pts: [
     // valley floor, heading north
     p(-40, -250, 0), p(-40, -205, 2), p(-30, -170, 6),
@@ -177,6 +183,8 @@ const airfield = {
   startIndex: 0.04,
   sky: 'noon',
   profile: { vMax: 80, aLat: 16 },
+  jumps: [{ atFrac: 0.12, len: 36, h: 3.2 }],
+  whoops: [{ atFrac: 0.44, len: 140, count: 5, h: 0.42 }],
   pts: [
     p(-420, -160, 0), p(-100, -160, 0), p(240, -160, 0),
     ...arc(240, -100, 60, -90, 90, 0, 0, 6).slice(1),                    // hairpin 1 (east)
@@ -203,8 +211,10 @@ const docks = {
   startIndex: 0.05,
   sky: 'night',
   profile: { vMax: 52, aLat: 15 },
+  jumps: [{ atFrac: 0.09, len: 22, h: 2.6 }],
+  tunnels: [{ atFrac: 0.18, len: 70 }],
   pts: [
-    p(-150, -90, 0), p(-60, -90, 0), p(40, -90, 0),
+    p(-150, -90, 0), p(-60, -90, 4), p(40, -90, 0),
     ...arc(70, -60, 30, -90, 0).slice(1),                                // right
     p(100, 0, 0),
     ...arc(130, 0, 30, 180, 90).slice(1),                                // left

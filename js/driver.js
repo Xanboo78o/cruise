@@ -23,7 +23,15 @@ export function autoDrive(car, model, pace = 0.85, out = {}, lane = 0) {
   let look = Math.max(6, Math.min(42, 6.5 + speed * 0.75));
   if (lost) look = Math.max(5, Math.min(look, Math.abs(off) * 0.7));
   const ai = (li + Math.max(1, Math.round(look / spacing))) % n;
-  const t = model.line[ai];
+  // a kicker ahead: forget the racing line, take it down the middle of the road
+  let kickerAhead = false;
+  for (const j of model.jumps || []) {
+    let dj = j.at - model.samples[li].s;
+    if (model.closed && dj < -model.length / 2) dj += model.length;
+    if (dj > -6 && dj < 110) kickerAhead = true;
+  }
+  const t = kickerAhead ? model.samples[ai] : model.line[ai];
+  if (kickerAhead) lane *= 0.3;
   const dx = t.x + t.nx * lane - car.x, dz = t.z + t.nz * lane - car.z;
   const cy = Math.cos(car.yaw), sy = Math.sin(car.yaw);
   const right = dx * cy - dz * sy, fwd = dx * sy + dz * cy;
@@ -101,6 +109,21 @@ export function autoDrive(car, model, pace = 0.85, out = {}, lane = 0) {
   if (spun) target = Math.min(target, 9);
   // scrubbing sideways? ease off until it hooks back up
   if (Math.abs(car.driftAngle) > 30) target = Math.min(target, speed * 0.92);
+
+  // kickers: line up straight for the last 40 m, hold everything in the air,
+  // and don't brake into the lip — the car needs to leave it square
+  let onRamp = false;
+  for (const j of model.jumps || []) {
+    let d = j.at - model.samples[li].s;
+    if (model.closed && d < -model.length / 2) d += model.length;
+    if (d > -6 && d < 40) onRamp = true;
+  }
+  if (car.airborne || onRamp) {
+    out.steer = car.airborne ? 0 : steer * 0.4;
+    out.throttle = car.airborne ? 0.3 : Math.max(0.4, out.prevThrottle ?? 0.6);
+    out.brake = 0; out.handbrake = 0; out.target = target;
+    return out;
+  }
 
   const dv = target - speed;
   let throttle = dv > 0.2 ? Math.min(1, 0.25 + dv * 0.34) : 0;

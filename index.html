@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>CRUISE</title>
-<link rel="stylesheet" href="style.css?v=1787938331">
+<link rel="stylesheet" href="style.css?v=1787940272">
 </head>
 <body>
 <div id="app"></div>
@@ -97,27 +97,25 @@
     <div class="nav"><span>◀ ▶ choose</span><span>▼ options</span><span>ENTER pick</span><span>ESC back</span></div>
   </section>
 
-  <!-- CAR -->
+  <!-- CAR — the showroom -->
   <section class="screen" data-screen="car" id="sCar">
-    <h2>WHAT</h2>
-    <div class="carLayout">
-      <button class="arrow" data-prev>◀</button>
-      <div class="carInfo">
-        <div class="carTier" id="pickTier"></div>
-        <div class="carName" id="pickName"></div>
-        <p class="carBlurb" id="pickBlurb"></p>
-        <div class="stats" id="pickStats"></div>
-        <div class="carIdx" id="pickIdx"></div>
+    <div class="showroom">
+      <div class="grid" id="carGrid"></div>
+      <div class="stage">
+        <div class="bigName"><span id="pickTier"></span><b id="pickName"></b></div>
+        <div class="carInfo">
+          <p class="carBlurb" id="pickBlurb"></p>
+          <div class="stats" id="pickStats"></div>
+          <div class="carIdx" id="pickIdx"></div>
+        </div>
       </div>
-      <button class="arrow" data-next>▶</button>
     </div>
-    <div class="strip" id="pickStrip"></div>
-    <div class="nav"><span>◀ ▶ car</span><span>ENTER pick</span><span>ESC back</span></div>
+    <div class="nav"><span>◀ ▶ ▲ ▼ car</span><span>ENTER pick</span><span>ESC back</span></div>
   </section>
 
   <!-- TRACK -->
   <section class="screen" data-screen="track" id="sTrack">
-    <h2>WHERE</h2>
+    <div class="trackHead"><b id="trackBig"></b><span id="trackFacts"></span></div>
     <div class="tiles tracks" id="trackTiles"></div>
     <div class="chips" id="skyChips"><label>WHEN</label><button class="chip" data-sky="0">SUNSET</button><button class="chip" data-sky="1">NOON</button><button class="chip" data-sky="2">DAWN</button><button class="chip" data-sky="3">NIGHT</button></div>
     <button class="go" data-go>GO</button>
@@ -127,29 +125,29 @@
 
 <script type="importmap">
 { "imports": {
-    "./js/audio.js": "./js/audio.js?v=1787938331",
-    "./js/bots.js": "./js/bots.js?v=1787938331",
-    "./js/camera.js": "./js/camera.js?v=1787938331",
-    "./js/car.js": "./js/car.js?v=1787938331",
-    "./js/carmesh.js": "./js/carmesh.js?v=1787938331",
-    "./js/city.js": "./js/city.js?v=1787938331",
-    "./js/driver.js": "./js/driver.js?v=1787938331",
-    "./js/fx.js": "./js/fx.js?v=1787938331",
-    "./js/ghost.js": "./js/ghost.js?v=1787938331",
-    "./js/hud.js": "./js/hud.js?v=1787938331",
-    "./js/input.js": "./js/input.js?v=1787938331",
-    "./js/items.js": "./js/items.js?v=1787938331",
-    "./js/main.js": "./js/main.js?v=1787938331",
-    "./js/menu.js": "./js/menu.js?v=1787938331",
-    "./js/presets.js": "./js/presets.js?v=1787938331",
-    "./js/props.js": "./js/props.js?v=1787938331",
-    "./js/race.js": "./js/race.js?v=1787938331",
-    "./js/terrain.js": "./js/terrain.js?v=1787938331",
-    "./js/track.js": "./js/track.js?v=1787938331",
-    "./js/tracks.js": "./js/tracks.js?v=1787938331",
-    "./js/world.js": "./js/world.js?v=1787938331",
-    "./js/vendor/three.core.min.js": "./js/vendor/three.core.min.js?v=1787938331",
-    "three": "./js/vendor/three.module.min.js?v=1787938331",
+    "./js/audio.js": "./js/audio.js?v=1787940272",
+    "./js/bots.js": "./js/bots.js?v=1787940272",
+    "./js/camera.js": "./js/camera.js?v=1787940272",
+    "./js/car.js": "./js/car.js?v=1787940272",
+    "./js/carmesh.js": "./js/carmesh.js?v=1787940272",
+    "./js/city.js": "./js/city.js?v=1787940272",
+    "./js/driver.js": "./js/driver.js?v=1787940272",
+    "./js/fx.js": "./js/fx.js?v=1787940272",
+    "./js/ghost.js": "./js/ghost.js?v=1787940272",
+    "./js/hud.js": "./js/hud.js?v=1787940272",
+    "./js/input.js": "./js/input.js?v=1787940272",
+    "./js/items.js": "./js/items.js?v=1787940272",
+    "./js/main.js": "./js/main.js?v=1787940272",
+    "./js/menu.js": "./js/menu.js?v=1787940272",
+    "./js/presets.js": "./js/presets.js?v=1787940272",
+    "./js/props.js": "./js/props.js?v=1787940272",
+    "./js/race.js": "./js/race.js?v=1787940272",
+    "./js/terrain.js": "./js/terrain.js?v=1787940272",
+    "./js/track.js": "./js/track.js?v=1787940272",
+    "./js/tracks.js": "./js/tracks.js?v=1787940272",
+    "./js/world.js": "./js/world.js?v=1787940272",
+    "./js/vendor/three.core.min.js": "./js/vendor/three.core.min.js?v=1787940272",
+    "three": "./js/vendor/three.module.min.js?v=1787940272",
     "three/addons/": "./js/vendor/addons/"
 } }
 </script>

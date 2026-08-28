@@ -149,6 +149,7 @@ export function buildCar(preset, opts = {}) {
     g.userData.body = root;
     g.userData.ready = true;
     if (g.userData.opacity != null) setCarOpacity(g, g.userData.opacity);
+    if (opts.onReady) opts.onReady(g);
   }).catch(err => console.warn('model failed', m.file, err));
 
   return g;

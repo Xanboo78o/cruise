@@ -74,7 +74,7 @@ export class Car {
     this.steer = 0;
     this.gear = 1; this.rpm = this.p.idle; this.engineLoad = 0;
     this.rearSlide = 0; this.frontSlide = 0; this.wheelSpin = 0;
-    this.airborne = false; this.airTime = 0; this.bestAir = 0; this.landing = 0;
+    this.airborne = false; this.airTime = 0; this.bestAir = 0; this.landing = 0; this.landT = 0;
     this.odo = 0; this.spun = false;
     this.slipR = 0; this.slipF = 0;
     // arcade state — all timers in seconds, all read by the physics
@@ -178,7 +178,8 @@ export class Car {
       // the micro-bumps only load the spring, or every pebble is a hammer blow
       w.dispV = this.vy + this.pitchV * w.a + this.rollV * w.b - gV;
       const k = w.front ? p.susp.kf : p.susp.kr;
-      const c = (w.dispV < 0 ? (w.front ? p.susp.cf : p.susp.cr) : (w.front ? p.susp.cfr : p.susp.crr));
+      let c = (w.dispV < 0 ? (w.front ? p.susp.cf : p.susp.cr) : (w.front ? p.susp.cfr : p.susp.crr));
+      if (this.landT > 0) c *= 3.5;                    // the dampers eat the landing, not a pogo
       let F = w.staticLoad - k * disp - c * w.dispV;
       // anti-roll bar
       const other = this.wheels[w.front ? (w.right ? 0 : 1) : (w.right ? 2 : 3)];
@@ -194,7 +195,22 @@ export class Car {
       Mpitch += F * w.a;
       Mroll += F * w.b;
     }
+    const wasAir = this.airborne;
     this.airborne = contacts === 0;
+    // arcade landings: the car sticks. Kill most of the vertical speed and the
+    // tumble on first contact, or a big kicker turns into a pogo down the road.
+    // Only a real fall counts, and only once: a wheel brushing the lip on the
+    // way up, or the tyres flickering on the way down, must not keep resetting
+    // the fall speed — that turns the car into a leaf.
+    if (wasAir && !this.airborne && this.vy < -3 && this.landT <= 0) {
+      this.landing = Math.min(1, -this.vy / 9);
+      this.vy = Math.max(this.vy * 0.1, -1.2);
+      this.pitchV *= 0.15; this.rollV *= 0.15; this.r *= 0.3;
+      this.landT = 0.5;
+    }
+    if (this.landT > 0) this.landT -= h;
+    // ...and takeoffs are capped so nobody flies for three seconds
+    if (!wasAir && this.airborne && this.vy > 5.5) this.vy = 5.5;
 
     // ------------------------------------------------------------- tyres
     // Ackermann: the inside wheel turns more, because it's on a tighter circle
@@ -272,8 +288,10 @@ export class Car {
       Fx -= roll * Math.max(-1, Math.min(1, this.u * 0.5));
       Fy -= 2.4 * this.v;                                // sideways scrub damping
     }
-    // downforce splits front/rear as a pitch moment on the body
-    Mpitch += -df * p.aero.split * p.lf + df * (1 - p.aero.split) * p.lr;
+    // downforce splits front/rear as a pitch moment on the body — on the ground.
+    // In the air it would nose the car in; arcade cars fly level and land flat.
+    if (!this.airborne) Mpitch += -df * p.aero.split * p.lf + df * (1 - p.aero.split) * p.lr;
+    else Mpitch += -this.pitch * this.ipitch * 9 - this.pitchV * this.ipitch * 3;
 
     const FxT = Fx, FyT = Fy;                         // what the ground actually pushes with
 
@@ -292,7 +310,7 @@ export class Car {
     // and a kei car get the same time constant: ~1 s at full aids, none raw.
     // ...and the damper grows with speed, since the tyres' own damping shrinks with it
     let Mtot = Mz - this.r * this.izz * (0.05 + 0.9 * aids) * (1 + speed / 35);
-    if (this.airborne) Mtot = -this.r * this.izz * 0.05;
+    if (this.airborne) Mtot = -this.r * this.izz * 4;        // in the air the heading stays put
     if (Math.abs(this.r) > 2.2) Mtot -= this.r * (Math.abs(this.r) - 2.2) * 1100;
 
     const mNow = this.massNow;
@@ -314,8 +332,7 @@ export class Car {
     // body: heave, pitch, roll
     if (this.airborne) {
       this.y += this.vy * h;
-      this.pitchV *= 1 - Math.min(h * 0.8, 1);
-      this.rollV *= 1 - Math.min(h * 0.8, 1);
+      this.rollV += (-this.roll * 9 - this.rollV * 3) * h;      // and level side to side
     } else {
       this.vy += ((Fsum - df) / mNow - G) * h;
       this.vy = Math.max(-24, Math.min(24, this.vy));

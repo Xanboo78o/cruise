@@ -136,6 +136,24 @@ handbrake country) · TOUGE (up one face, three stacked summit hairpins, down
 the other) · CANYON PASS (point to point, 110 m down). All hand-drawn in
 `js/tracks.js`, all validated by `tools/validate.mjs`.
 
+## Elevation, kickers, whoops, tunnels
+
+Every circuit has a height profile now — crests, dips, the touge's 60 m climb —
+and features authored on top of the spline as fractions of the lap in
+`js/tracks.js`: `jumps` (an eased ramp to a lip, then the road isn't there),
+`whoops` (a rhythm section) and `tunnels` (walls, roof, lights). `world.js`
+dresses them; the height field is the physics. Cars fly level, land on the
+dampers, and the takeoff is capped so nobody hangs for three seconds. Bots line
+up straight for a kicker and hold everything in the air.
+
+## The selection screens
+
+The car screen is a showroom: every car rendered live into a grid (from the
+real models, class-coloured), the pick on a turntable on a stage that takes the
+class colour, a skewed big name, stat bars that animate. The track screen has a
+3D diorama of the selected circuit — the road as a ribbon with the hills
+exaggerated, slowly turning — plus length, elevation and what's on it.
+
 ## Cruise — the open city
 
 CRUISE is the city, full stop: 30 blocks, a waterfront, a skidpad, five cars of

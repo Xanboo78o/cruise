@@ -274,7 +274,7 @@ function frame() {
   last = now;
   screens.update(dt);
   if (!S.running || (screens.active && !attract) || S.paused) {
-    if (screens.current === 'car') screens.renderShowcase(renderer, camera.aspect);
+    if (screens.current === 'car' || screens.current === 'track') screens.renderShowcase(renderer, camera.aspect);
     else renderer.render(scene, camera);
     input.endFrame();
     return;
@@ -397,7 +397,7 @@ function frame() {
     padHint: input.usingPad ? '🎮' : '',
   });
 
-  if (screens.current === 'car') screens.renderShowcase(renderer, camera.aspect);
+  if (screens.current === 'car' || screens.current === 'track') screens.renderShowcase(renderer, camera.aspect);
   else renderer.render(scene, camera);
   input.endFrame();
 }
@@ -485,7 +485,7 @@ function reloadSky() {
 
 // ------------------------------------------------------------------- screens
 const screens = new Screens({
-  input, S, PRESETS, CAR_ORDER, TIERS, TRACKS, TRACK_ORDER, getModel,
+  input, S, PRESETS, CAR_ORDER, TIERS, TRACKS, TRACK_ORDER, getModel, renderer,
   onGo: () => go(),
 });
 
@@ -500,10 +500,10 @@ function startAttract() {
   attract = true;
   S.paused = false;
   const pick = TRACK_ORDER[Math.floor(Math.random() * TRACK_ORDER.length)];
-  const savedCar = S.carId;
+  const savedCar = S.carId, savedTrack = S.track;
   S.carId = CAR_ORDER[Math.floor(Math.random() * CAR_ORDER.length)];
   loadTrack(pick, { mode: 'race', bots: 7, laps: 3 });
-  S.carId = savedCar;
+  S.carId = savedCar; S.track = savedTrack;                 // the attract race is not your choice
   car.setPreset(S.carId);
   rig.mode = 'tv';
   document.body.classList.add('nohud');

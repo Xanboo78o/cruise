@@ -144,6 +144,7 @@ export class World {
     this.group.add(new THREE.Mesh(dg, new THREE.MeshBasicMaterial({ color: 0xd8cf9a, transparent: true, opacity: 0.5, side: THREE.DoubleSide })));
 
     this.buildKerbs();
+    this.buildFeatures();
     this.buildStartLine();
     this.buildProps();
     this.buildIdealLine();
@@ -203,6 +204,84 @@ export class World {
     back.rotation.x = -Math.PI / 2;
     back.position.set((b.minX + b.maxX) / 2, minY - 26, (b.minZ + b.maxZ) / 2);
     this.group.add(back);
+  }
+
+  // Kickers get a solid face under the lip and a stripe on the ramp; tunnels
+  // get walls and a roof. Both are dressing — the height field is the physics.
+  buildFeatures() {
+    const m = this.model, hw = m.halfWidth;
+    const dark = new THREE.MeshLambertMaterial({ color: 0x2a2d33, side: THREE.DoubleSide });
+    const stripe = new THREE.MeshBasicMaterial({ color: 0xf5c145, transparent: true, opacity: 0.8, side: THREE.DoubleSide });
+    for (const j of m.jumps) {
+      const lip = m.sampleAtDistance(j.at - 0.5), base = m.sampleAtDistance(j.at - j.len);
+      const yBase = base.y;
+      // vertical face at the lip, full width
+      const q = new THREE.BufferGeometry();
+      q.setAttribute('position', new THREE.Float32BufferAttribute([
+        lip.x + lip.nx * (hw + 1.3), lip.y, lip.z + lip.nz * (hw + 1.3),
+        lip.x - lip.nx * (hw + 1.3), lip.y, lip.z - lip.nz * (hw + 1.3),
+        lip.x + lip.nx * (hw + 1.3), yBase - 0.5, lip.z + lip.nz * (hw + 1.3),
+        lip.x - lip.nx * (hw + 1.3), yBase - 0.5, lip.z - lip.nz * (hw + 1.3)], 3));
+      q.setIndex([0, 2, 1, 1, 2, 3]);
+      q.computeVertexNormals();
+      this.group.add(new THREE.Mesh(q, dark));
+      // side skirts along the ramp so it reads as a built thing
+      for (const side of [-1, 1]) {
+        const pos = [], idx = [];
+        const n = 8;
+        for (let i = 0; i <= n; i++) {
+          const s = m.sampleAtDistance(j.at - j.len + (j.len - 0.5) * i / n);
+          const ox = s.nx * side * (hw + 1.3), oz = s.nz * side * (hw + 1.3);
+          pos.push(s.x + ox, s.y + 0.05, s.z + oz, s.x + ox, yBase - 0.5, s.z + oz);
+          if (i < n) { const a = i * 2; idx.push(a, a + 1, a + 2, a + 2, a + 1, a + 3); }
+        }
+        const g = new THREE.BufferGeometry();
+        g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+        g.setIndex(idx); g.computeVertexNormals();
+        this.group.add(new THREE.Mesh(g, dark));
+      }
+      // chevrons on the ramp surface
+      for (let k = 1; k <= 3; k++) {
+        const s = m.sampleAtDistance(j.at - j.len * (0.25 * k));
+        const band = new THREE.Mesh(new THREE.PlaneGeometry(hw * 1.6, 1.2), stripe);
+        band.position.set(s.x, s.y + 0.12, s.z);
+        band.rotation.set(-Math.PI / 2 + Math.atan(s.grade), Math.atan2(s.tx, s.tz), 0, 'YXZ');
+        this.group.add(band);
+      }
+    }
+    const wallM = new THREE.MeshLambertMaterial({ color: 0x4a4f5a, side: THREE.DoubleSide });
+    const roofM = new THREE.MeshLambertMaterial({ color: 0x33363e, side: THREE.DoubleSide });
+    for (const u of m.tunnels) {
+      const n = Math.max(6, Math.round(u.len / 6));
+      const pos = [], idx = [], rpos = [], ridx = [];
+      const H = 7.5;
+      for (let i = 0; i <= n; i++) {
+        const s = m.sampleAtDistance((u.at + u.len * i / n) % m.length);
+        for (const side of [-1, 1]) {
+          const ox = s.nx * side * (hw + 0.8), oz = s.nz * side * (hw + 0.8);
+          pos.push(s.x + ox, s.y - 0.5, s.z + oz, s.x + ox, s.y + H, s.z + oz);
+        }
+        rpos.push(s.x + s.nx * (hw + 1.2), s.y + H, s.z + s.nz * (hw + 1.2), s.x - s.nx * (hw + 1.2), s.y + H, s.z - s.nz * (hw + 1.2));
+        if (i < n) {
+          const a = i * 4;
+          idx.push(a, a + 1, a + 4, a + 4, a + 1, a + 5, a + 2, a + 6, a + 3, a + 6, a + 7, a + 3);
+          const r = i * 2; ridx.push(r, r + 2, r + 1, r + 2, r + 3, r + 1);
+        }
+      }
+      const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); g.computeVertexNormals();
+      const rg = new THREE.BufferGeometry(); rg.setAttribute('position', new THREE.Float32BufferAttribute(rpos, 3)); rg.setIndex(ridx); rg.computeVertexNormals();
+      const walls = new THREE.Mesh(g, wallM), roof = new THREE.Mesh(rg, roofM);
+      walls.castShadow = roof.castShadow = true;
+      this.group.add(walls, roof);
+      // a few lights down the middle so it isn't a cave
+      for (let i = 1; i < n; i += 2) {
+        const s = m.sampleAtDistance((u.at + u.len * i / n) % m.length);
+        const lamp = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.2, 0.6), new THREE.MeshBasicMaterial({ color: 0xfff1c8 }));
+        lamp.position.set(s.x, s.y + H - 0.3, s.z);
+        lamp.rotation.y = Math.atan2(s.tx, s.tz);
+        this.group.add(lamp);
+      }
+    }
   }
 
   // Kerbs only where it actually bends, on the inside and outside of the corner.

@@ -212,11 +212,41 @@ export class TrackModel {
     const pts = def.pts.map(q => ({ x: q.x * sc, z: q.z * sc, y: (q.y || 0) * ysc }));
     this.samples = resample(pts, this.closed, 2);
     this.length = differentiate(this.samples, this.closed);
+    this.applyFeatures(def);
+    this.length = differentiate(this.samples, this.closed);   // grades again, with the features in
     this.line = solveLine(this.samples, this.halfWidth, this.closed, def.lineMargin ?? 1.8);
     this.profile = speedProfile(this.line, this.closed, def.profile);
     this.buildGrid();
     this.startIndex = def.startIndex ?? 0;
     this.terrain = new Terrain(this, { rough: def.rough ?? 0.35 });
+  }
+
+  // Kickers, whoops and tunnels are authored on top of the spline as fractions
+  // of the lap. A kicker is a linear ramp up to `h` over `len` metres and then
+  // the road simply isn't there any more — the next sample is at base height.
+  // Tunnels are only remembered here; world.js builds them.
+  applyFeatures(def) {
+    const s = this.samples, L = this.length;
+    this.jumps = []; this.tunnels = []; this.whoops = [];
+    for (const j of def.jumps || []) {
+      const at = j.atFrac * L, len = j.len ?? 26, h = j.h ?? 3.2;
+      for (const p of s) {
+        let d = p.s - (at - len);
+        if (this.closed && d < -L / 2) d += L;
+        if (d >= 0 && d <= len) p.y += h * Math.pow(d / len, 1.7);   // eases in: no kink at the base
+      }
+      this.jumps.push({ at, len, h });
+    }
+    for (const w of def.whoops || []) {
+      const at = w.atFrac * L, len = w.len ?? 80, n = w.count ?? 5, h = w.h ?? 0.9;
+      for (const p of s) {
+        let d = p.s - at;
+        if (this.closed && d < -L / 2) d += L;
+        if (d >= 0 && d <= len) p.y += h * 0.5 * (1 - Math.cos(d / len * n * Math.PI * 2));
+      }
+      this.whoops.push({ at, len });
+    }
+    for (const u of def.tunnels || []) this.tunnels.push({ at: u.atFrac * L, len: u.len ?? 90 });
   }
 
   buildGrid() {
