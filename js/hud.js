@@ -28,6 +28,10 @@ export class HUD {
   }
 
   prepareMap(model) {
+    this.model = model;
+    this.mapPath = null;
+    if (model.roads) { this.roadMap = true; return; }      // the open world: drawn live around the car
+    this.roadMap = false;
     const b = model.bounds, pad = 14;
     const w = this.map.width, h = this.map.height;
     const sx = (w - pad * 2) / (b.maxX - b.minX || 1);
@@ -177,7 +181,31 @@ export class HUD {
     c.stroke();
   }
 
+  // a 1.4 km window of the road network around the car, north up
+  drawRoadMap(s) {
+    const c = this.mapCtx, w = this.map.width, h = this.map.height;
+    const R = 700, sc = w / (R * 2);
+    c.clearRect(0, 0, w, h);
+    c.fillStyle = 'rgba(10,12,18,0.42)'; c.fillRect(0, 0, w, h);
+    const P = (x, z) => [w / 2 - (x - s.carX) * sc, h / 2 - (z - s.carZ) * sc];   // +x is screen-left, see the world minimap note
+    const col = { highway: '#f5c145', blvd: '#ffd98a', street: '#e8e4d8', hill: '#ff9a5c', coast: '#7ed3ff', gravel: '#c9a36a', canyon: '#ff6b3d', mine: '#ffe066', pier: '#ffffff', sand: '#f7e7b0' };
+    c.lineCap = 'round'; c.lineJoin = 'round';
+    for (const r of this.model.roads) {
+      // skip roads entirely outside the window
+      let near = false;
+      for (const [x, z] of r.pts) if (Math.abs(x - s.carX) < R + 300 && Math.abs(z - s.carZ) < R + 300) { near = true; break; }
+      if (!near) continue;
+      c.strokeStyle = col[r.type] || '#fff'; c.lineWidth = Math.max(1.5, r.T.w * sc * 0.9);
+      c.beginPath(); r.pts.forEach(([x, z], i) => { const [a, b] = P(x, z); i ? c.lineTo(a, b) : c.moveTo(a, b); }); c.stroke();
+    }
+    if (this.model.pois) { c.fillStyle = '#ff6b8f'; for (const p of this.model.pois) { const [a, b] = P(p.x, p.z); if (a < 0 || b < 0 || a > w || b > h) continue; c.beginPath(); c.arc(a, b, 3, 0, 7); c.fill(); } }
+    if (s.others) for (const o of s.others) { const [ox, oy] = P(o.x, o.z); c.fillStyle = 'rgba(255,120,120,0.9)'; c.beginPath(); c.arc(ox, oy, 2.6, 0, 7); c.fill(); }
+    c.save(); c.translate(w / 2, h / 2); c.rotate(s.carYaw + Math.PI);
+    c.fillStyle = '#fff'; c.beginPath(); c.moveTo(0, -6); c.lineTo(4, 5); c.lineTo(-4, 5); c.closePath(); c.fill(); c.restore();
+  }
+
   drawMap(s) {
+    if (this.roadMap) return this.drawRoadMap(s);
     if (!this.mapPath) return;
     const c = this.mapCtx, w = this.map.width, h = this.map.height;
     c.clearRect(0, 0, w, h);

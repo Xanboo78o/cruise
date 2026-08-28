@@ -16,6 +16,7 @@ import { LapRecorder, GhostPlayer, PaceCar, Best } from './ghost.js';
 import { Audio } from './audio.js';
 import { buildCity, cityProps, cityWalls } from './city.js';
 import { Props } from './props.js';
+import { FreeRoam } from './world/freeroam.js';
 import { autoDrive, AUTO_AIDS } from './driver.js';
 import { Items, ITEM_INFO } from './items.js';
 import { Bots } from './bots.js';
@@ -69,7 +70,7 @@ const env = {
 // ---------------------------------------------------------------- world setup
 function getModel(id) {
   if (modelCache.has(id)) return modelCache.get(id);
-  const m = id === 'city' ? buildCity() : new TrackModel(TRACKS[id]);
+  const m = id === 'sanoozi' ? new FreeRoam() : id === 'city' ? buildCity() : new TrackModel(TRACKS[id]);
   modelCache.set(id, m);
   return m;
 }
@@ -124,6 +125,7 @@ function loadTrack(id, opts = {}) {
 // CRUISE: the open city, things to hit, a bit of traffic, no clock
 function startCruise() {
   resetCar(true);
+  if (model.def.id === 'sanoozi') { S.showLine = false; S.showBoards = false; return; }   // the world; dressing comes in later phases
   if (model.def.id === 'city') {
     props = new Props(scene, (x, z) => model.heightAt(x, z), cityProps(), cityWalls());
     bots = new Bots(model, 5, S.carId, { pace: [0.45, 0.62], items: false });
@@ -180,6 +182,14 @@ function loadBest() {
 function resetCar(toStart) {
   const m = model;
   let p;
+  if (m.spawn) {
+    // the open world: drop at the spawn point (or back onto the nearest road)
+    const sp = toStart ? m.spawn() : (() => { const nr = m.nearest(car.x, car.z); return { x: nr.p.x, z: nr.p.z, yaw: Math.atan2(nr.p.tx, nr.p.tz) }; })();
+    car.reset(sp.x, sp.z, sp.yaw, m.heightAt(sp.x, sp.z) + 0.3);
+    for (let i = 0; i < 90; i++) car.step(1 / 120, { throttle: 0, brake: 1, steer: 0, handbrake: 0 }, env, S.stability);
+    started = false; rec.reset(); driftHold = 0; stuckT = 0;
+    return;
+  }
   if (toStart) {
     const i = Math.floor((m.def.startIndex || 0) * m.samples.length) % m.samples.length;
     p = m.samples[i];
@@ -227,6 +237,7 @@ function onLapDone(t) {
 }
 
 function updateTiming(dt) {
+  if (!model.samples.length) return;                       // the open world has no lap
   const nr = model.nearest(car.x, car.z);
   const d = model.samples[nr.i].s;
   let step = d - prevDist;
@@ -360,6 +371,7 @@ function frame() {
   if (car.airborne && car.airTime > 0.35 && !airToast) airToast = true;
   if (!car.airborne && airToast) { airToast = false; if (car.bestAir > 0.6) hud.toast('AIR  ' + car.bestAir.toFixed(2) + 's', 1200); }
   rig.update(dt, car, input.mouse);
+  if (world.update) world.update(camera.position.x, camera.position.z);
   if (skyMesh) skyMesh.position.copy(camera.position);
   if (lights) {
     lights.dir.position.set(camera.position.x + lights.sky.dirPos[0] * 220,

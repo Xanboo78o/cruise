@@ -5,11 +5,11 @@
 import * as THREE from 'three';
 
 export const SKIES = {
-  sunset: { top: 0x2a3a6b, bot: 0xff9a5c, sun: 0xffd9a0, fog: 0xf2b183, fogNear: 240, fogFar: 900,
+  sunset: { top: 0x2a3a6b, bot: 0xff9a5c, sun: 0xffd9a0, fog: 0xf2b183, fogNear: 300, fogFar: 1600,
             hemiSky: 0xffc39a, hemiGround: 0x4a3a2e, dir: 0xffd0a0, dirI: 1.4, amb: 0.40, dirPos: [-0.5, 0.52, -1] },
   dawn:   { top: 0x1d3f66, bot: 0xf0c8b0, sun: 0xfff0d0, fog: 0xcfd8e0, fogNear: 300, fogFar: 1500,
             hemiSky: 0xbcd4f0, hemiGround: 0x4a4438, dir: 0xffe8cc, dirI: 1.15, amb: 0.42, dirPos: [0.8, 0.45, 0.4] },
-  noon:   { top: 0x3f7fd0, bot: 0xbfe0f5, sun: 0xffffff, fog: 0xcfe6f5, fogNear: 350, fogFar: 1700,
+  noon:   { top: 0x3f7fd0, bot: 0xbfe0f5, sun: 0xffffff, fog: 0xcfe6f5, fogNear: 400, fogFar: 2400,
             hemiSky: 0xcfe6ff, hemiGround: 0x5a6a4a, dir: 0xffffff, dirI: 1.25, amb: 0.48, dirPos: [0.4, 0.9, 0.3] },
   night:  { top: 0x070a16, bot: 0x1b2340, sun: 0x9fb6e8, fog: 0x121a2e, fogNear: 120, fogFar: 780,
             hemiSky: 0x44567f, hemiGround: 0x181d2b, dir: 0xa8bce8, dirI: 0.55, amb: 0.54, dirPos: [-0.4, 0.7, 0.6] },

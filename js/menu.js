@@ -268,7 +268,7 @@ export class Screens {
         if (n.up) this.carIdx = (this.carIdx - C + N) % N;
         if (n.down) this.carIdx = (this.carIdx + C) % N;
         if (n.left || n.right || n.up || n.down) { S.carId = this.o.CAR_ORDER[this.carIdx]; this.renderCar(); this.showcaseCar(S.carId); }
-        if (n.ok) { if (S.mode === 'cruise') { S.track = 'city'; this.go(); } else this.show('track'); }
+        if (n.ok) { if (S.mode === 'cruise') { S.track = 'sanoozi'; this.go(); } else this.show('track'); }
         if (n.back) this.show('mode');
         break;
       }
@@ -402,7 +402,7 @@ export class Screens {
       else if (t.dataset.next != null) { const N = this.o.CAR_ORDER.length; this.carIdx = (this.carIdx + 1) % N; S.carId = this.o.CAR_ORDER[this.carIdx]; this.renderCar(); this.showcaseCar(S.carId); }
       else if (t.dataset.track) { const ids = [...this.o.TRACK_ORDER, 'city']; this.trackIdx = ids.indexOf(t.dataset.track); S.track = t.dataset.track; this.renderTrack(); this.showcaseTrack(t.dataset.track); }
       else if (t.dataset.sky) { S.skyIdx = +t.dataset.sky; S.skyChosen = true; this.renderTrack(); }
-      else if (t.dataset.go != null) { if (this.current === 'car') { if (S.mode === 'cruise') { S.track = 'city'; this.go(); } else this.show('track'); } else this.go(); }
+      else if (t.dataset.go != null) { if (this.current === 'car') { if (S.mode === 'cruise') { S.track = 'sanoozi'; this.go(); } else this.show('track'); } else this.go(); }
       else if (t.dataset.back != null) { const i = ORDER.indexOf(this.current); this.show(ORDER[Math.max(0, i - 1)]); }
     });
   }

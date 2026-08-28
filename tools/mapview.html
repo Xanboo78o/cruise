@@ -1,0 +1,40 @@
+<!doctype html><meta charset="utf-8"><title>San Oozi map</title>
+<style>body{margin:0;background:#111;color:#ddd;font:12px monospace}canvas{display:block}#t{position:fixed;left:8px;top:8px}</style>
+<canvas id="c"></canvas><div id="t">…</div>
+<script type="importmap">{ "imports": { "three": "../js/vendor/three.module.min.js" } }</script>
+<script type="module">
+import { WorldTerrain } from '../js/world/terrain.js';
+import { WORLD, ROADS, ROAD_TYPES, DISTRICTS, POIS, COAST, CANYON } from '../js/world/spec.js';
+const T = new WorldTerrain();
+const S = 5;                                        // metres per pixel
+const W = Math.ceil((WORLD.maxX - WORLD.minX) / S), H = Math.ceil((WORLD.maxZ - WORLD.minZ) / S);
+const cv = document.getElementById('c'); cv.width = W; cv.height = H;
+const g = cv.getContext('2d');
+const img = g.createImageData(W, H);
+const P = (x, z) => [(x - WORLD.minX) / S, H - (z - WORLD.minZ) / S];
+let lo = 1e9, hi = -1e9;
+const hs = new Float32Array(W * H);
+for (let py = 0; py < H; py++) for (let px = 0; px < W; px++) {
+  const x = WORLD.minX + px * S, z = WORLD.maxZ - py * S;
+  const y = T.height(x, z); hs[py * W + px] = y; if (y < lo) lo = y; if (y > hi) hi = y;
+}
+for (let i = 0; i < W * H; i++) {
+  const y = hs[i]; let r, gg, b;
+  if (y < 0.3) { r = 20; gg = 60 + Math.max(0, 40 + y); b = 120 + Math.max(0, 60 + y * 2); }
+  else { const t = Math.min(1, (y - 0) / 600); r = 40 + 150 * t; gg = 90 + 60 * (1 - t) - 40 * t; b = 30 + 20 * t; if (y > 420) { r = 150 + 80 * (y - 420) / 200; gg = 140 + 80 * (y - 420) / 200; b = 130 + 80 * (y - 420) / 200; } }
+  img.data[i * 4] = r; img.data[i * 4 + 1] = gg; img.data[i * 4 + 2] = b; img.data[i * 4 + 3] = 255;
+}
+g.putImageData(img, 0, 0);
+// hillshade-ish: darken where slope faces south
+const col = { highway: '#f5c145', blvd: '#ffd98a', street: '#e8e4d8', hill: '#ff9a5c', coast: '#7ed3ff', gravel: '#c9a36a', canyon: '#ff6b3d', mine: '#ffe066', pier: '#ffffff', sand: '#f7e7b0' };
+g.lineCap = 'round'; g.lineJoin = 'round';
+for (const r of ROADS) {
+  g.strokeStyle = col[r.type]; g.lineWidth = Math.max(1.5, ROAD_TYPES[r.type].w / S);
+  g.beginPath(); r.pts.forEach(([x, z], i) => { const [a, b] = P(x, z); i ? g.lineTo(a, b) : g.moveTo(a, b); }); g.stroke();
+}
+g.strokeStyle = 'rgba(255,255,255,0.5)'; g.lineWidth = 1; g.setLineDash([4, 4]);
+for (const d of DISTRICTS) { const [a, b] = P(d.x0, d.z1), [c, e] = P(d.x1, d.z0); g.strokeRect(a, b, c - a, e - b); g.fillStyle = '#fff'; g.font = '11px monospace'; g.fillText(d.name, a + 4, b + 12); }
+g.setLineDash([]);
+g.fillStyle = '#ff6b8f'; for (const p of POIS) { const [a, b] = P(p.x, p.z); g.beginPath(); g.arc(a, b, 4, 0, 7); g.fill(); g.fillText(p.name, a + 6, b + 4); }
+document.getElementById('t').textContent = `${W}x${H} @ ${S} m/px · height ${lo.toFixed(0)}..${hi.toFixed(0)} m · roads ${ROADS.length}`;
+</script>
