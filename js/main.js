@@ -22,6 +22,8 @@ import { RACES } from './world/races.js';
 import { RaceDressing } from './world/dressing.js';
 import { DroneIntro } from './world/drone.js';
 import { MapScreen } from './world/mapscreen.js';
+import { Population } from './world/oo.js';
+import { Peds } from './world/peds.js';
 import { autoDrive, AUTO_AIDS } from './driver.js';
 import { Items, ITEM_INFO } from './items.js';
 import { Bots } from './bots.js';
@@ -61,6 +63,8 @@ const car = new Car(S.carId, PRESETS);
 let carMesh, ghostMesh, paceMesh, world, model, skyMesh, lights;
 let skid, smoke, items = null, bots = null, race = null, props = null;
 let freeRoam = null, worldRace = null, drone = null, mapScreen = null;   // the city, the race inside it, the fly-in
+let population = null, peds = null;                                       // the Oo
+S.hour = 10;                                                              // the city's clock, 24 h every 20 real minutes
 const modelCache = new Map();
 
 // the road under the wheels, plus whatever someone spilled on it
@@ -85,6 +89,7 @@ function clearScene() {
   if (world) world.dispose();
   if (items) items.dispose();
   if (props) props.dispose();
+  if (peds) { peds.dispose(); peds = null; }
   for (const o of [...scene.children]) scene.remove(o);
   scene.children.length = 0;
   items = null; bots = null; race = null; props = null;
@@ -133,7 +138,14 @@ function loadTrack(id, opts = {}) {
 // CRUISE: the open city, things to hit, a bit of traffic, no clock
 function startCruise() {
   resetCar(true);
-  if (model.def.id === 'sanoozi') { S.showLine = false; S.showBoards = false; return; }   // the world; dressing comes in later phases
+  if (model.def.id === 'sanoozi') {
+    S.showLine = false; S.showBoards = false;
+    if (!population) population = new Population(model.T);
+    if (peds) peds.dispose();
+    peds = new Peds(scene, population, model.T);
+    peds.onBounce = (a, c) => { if (c === car) { input.rumble(0.5, 0.2, 90); if (Math.random() < 0.35) hud.toast(['OO!', 'HA!', 'WHEEE', 'AGAIN!', 'NICE ONE'][Math.floor(Math.random() * 5)] + '  — ' + a.name, 1100); } };
+    return;
+  }
   if (model.def.id === 'city') {
     props = new Props(scene, (x, z) => model.heightAt(x, z), cityProps(), cityWalls());
     bots = new Bots(model, 5, S.carId, { pace: [0.45, 0.62], items: false });
@@ -449,6 +461,10 @@ function frame() {
     if (drone.done) { race.countdown = Math.min(race.countdown, 3.4); document.body.classList.toggle('nohud', !S.hudOn); camera.fov = 62; }
   } else rig.update(dt, car, input.mouse);
   if (world.update) world.update(camera.position.x, camera.position.z);
+  if (freeRoam) {
+    S.hour = (S.hour + dt * (24 / 1200)) % 24;
+    if (peds) peds.update(dt, camera.position.x, camera.position.z, allCars(), S.hour, worldRace ? worldRace.rc.gate : null);
+  }
   if (skyMesh) skyMesh.position.copy(camera.position);
   if (lights) {
     lights.dir.position.set(camera.position.x + lights.sky.dirPos[0] * 220,
