@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>CRUISE</title>
-<link rel="stylesheet" href="style.css?v=1787945724">
+<link rel="stylesheet" href="style.css?v=1787945879">
 </head>
 <body>
 <div id="app"></div>
@@ -69,6 +69,14 @@
   <div id="toast"></div>
 </div>
 
+<!-- the map of San Oozi: races as places -->
+<div id="mapScreen">
+  <div class="mapHead"><b>SAN OOZI</b><span>pick a race · the drone takes you there</span></div>
+  <canvas id="mapCanvas" width="1200" height="920"></canvas>
+  <div id="mapCard"></div>
+  <div class="nav mapNav"><span>◀ ▶ ▲ ▼ marker</span><span>ENTER fly in</span><span>M / ESC close</span></div>
+</div>
+
 <div id="screens">
   <!-- TITLE -->
   <section class="screen" data-screen="title" id="sTitle">
@@ -125,29 +133,39 @@
 
 <script type="importmap">
 { "imports": {
-    "./js/audio.js": "./js/audio.js?v=1787945724",
-    "./js/bots.js": "./js/bots.js?v=1787945724",
-    "./js/camera.js": "./js/camera.js?v=1787945724",
-    "./js/car.js": "./js/car.js?v=1787945724",
-    "./js/carmesh.js": "./js/carmesh.js?v=1787945724",
-    "./js/city.js": "./js/city.js?v=1787945724",
-    "./js/driver.js": "./js/driver.js?v=1787945724",
-    "./js/fx.js": "./js/fx.js?v=1787945724",
-    "./js/ghost.js": "./js/ghost.js?v=1787945724",
-    "./js/hud.js": "./js/hud.js?v=1787945724",
-    "./js/input.js": "./js/input.js?v=1787945724",
-    "./js/items.js": "./js/items.js?v=1787945724",
-    "./js/main.js": "./js/main.js?v=1787945724",
-    "./js/menu.js": "./js/menu.js?v=1787945724",
-    "./js/presets.js": "./js/presets.js?v=1787945724",
-    "./js/props.js": "./js/props.js?v=1787945724",
-    "./js/race.js": "./js/race.js?v=1787945724",
-    "./js/terrain.js": "./js/terrain.js?v=1787945724",
-    "./js/track.js": "./js/track.js?v=1787945724",
-    "./js/tracks.js": "./js/tracks.js?v=1787945724",
-    "./js/world.js": "./js/world.js?v=1787945724",
-    "./js/vendor/three.core.min.js": "./js/vendor/three.core.min.js?v=1787945724",
-    "three": "./js/vendor/three.module.min.js?v=1787945724",
+    "./js/audio.js": "./js/audio.js?v=1787945879",
+    "./js/bots.js": "./js/bots.js?v=1787945879",
+    "./js/camera.js": "./js/camera.js?v=1787945879",
+    "./js/car.js": "./js/car.js?v=1787945879",
+    "./js/carmesh.js": "./js/carmesh.js?v=1787945879",
+    "./js/city.js": "./js/city.js?v=1787945879",
+    "./js/driver.js": "./js/driver.js?v=1787945879",
+    "./js/fx.js": "./js/fx.js?v=1787945879",
+    "./js/ghost.js": "./js/ghost.js?v=1787945879",
+    "./js/hud.js": "./js/hud.js?v=1787945879",
+    "./js/input.js": "./js/input.js?v=1787945879",
+    "./js/items.js": "./js/items.js?v=1787945879",
+    "./js/main.js": "./js/main.js?v=1787945879",
+    "./js/menu.js": "./js/menu.js?v=1787945879",
+    "./js/presets.js": "./js/presets.js?v=1787945879",
+    "./js/props.js": "./js/props.js?v=1787945879",
+    "./js/race.js": "./js/race.js?v=1787945879",
+    "./js/terrain.js": "./js/terrain.js?v=1787945879",
+    "./js/track.js": "./js/track.js?v=1787945879",
+    "./js/tracks.js": "./js/tracks.js?v=1787945879",
+    "./js/world.js": "./js/world.js?v=1787945879",
+    "./js/world/build.js": "./js/world/build.js?v=1787945879",
+    "./js/world/districts.js": "./js/world/districts.js?v=1787945879",
+    "./js/world/dressing.js": "./js/world/dressing.js?v=1787945879",
+    "./js/world/drone.js": "./js/world/drone.js?v=1787945879",
+    "./js/world/freeroam.js": "./js/world/freeroam.js?v=1787945879",
+    "./js/world/mapscreen.js": "./js/world/mapscreen.js?v=1787945879",
+    "./js/world/races.js": "./js/world/races.js?v=1787945879",
+    "./js/world/routes.js": "./js/world/routes.js?v=1787945879",
+    "./js/world/spec.js": "./js/world/spec.js?v=1787945879",
+    "./js/world/terrain.js": "./js/world/terrain.js?v=1787945879",
+    "./js/vendor/three.core.min.js": "./js/vendor/three.core.min.js?v=1787945879",
+    "three": "./js/vendor/three.module.min.js?v=1787945879",
     "three/addons/": "./js/vendor/addons/"
 } }
 </script>

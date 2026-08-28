@@ -17,6 +17,11 @@ import { Audio } from './audio.js';
 import { buildCity, cityProps, cityWalls } from './city.js';
 import { Props } from './props.js';
 import { FreeRoam } from './world/freeroam.js';
+import { Route } from './world/routes.js';
+import { RACES } from './world/races.js';
+import { RaceDressing } from './world/dressing.js';
+import { DroneIntro } from './world/drone.js';
+import { MapScreen } from './world/mapscreen.js';
 import { autoDrive, AUTO_AIDS } from './driver.js';
 import { Items, ITEM_INFO } from './items.js';
 import { Bots } from './bots.js';
@@ -55,6 +60,7 @@ const audio = new Audio();
 const car = new Car(S.carId, PRESETS);
 let carMesh, ghostMesh, paceMesh, world, model, skyMesh, lights;
 let skid, smoke, items = null, bots = null, race = null, props = null;
+let freeRoam = null, worldRace = null, drone = null, mapScreen = null;   // the city, the race inside it, the fly-in
 const modelCache = new Map();
 
 // the road under the wheels, plus whatever someone spilled on it
@@ -89,6 +95,8 @@ function loadTrack(id, opts = {}) {
   cfg = { mode: S.mode, bots: S.bots, laps: S.laps, ...opts };
   clearScene();
   model = getModel(id);
+  freeRoam = id === 'sanoozi' ? model : null;
+  worldRace = null;
   env.terrain = model.terrain;
   if (!S.skyChosen) S.skyIdx = Math.max(0, SKY_CYCLE.indexOf(model.def.sky));
   const skyKey = SKY_CYCLE[S.skyIdx] || model.def.sky;
@@ -157,6 +165,69 @@ function startRace() {
   car.item = null; car.boostT = 0; car.stunT = 0; car.shieldT = 0; car.megaT = 0;
   started = false; rec.reset(); skid.clear(); smoke.clear();
   hud.toast('', 1);
+}
+
+// A race in San Oozi: the world stays; a Route becomes the model, the dressing
+// goes up, the drone flies you in, the grid forms, lights.
+function startWorldRace(rc) {
+  if (!freeRoam) return;
+  if (worldRace) endWorldRace(false);
+  const route = new Route(freeRoam.T, rc);
+  route.collide = c => freeRoam.collide(c);
+  const dressing = new RaceDressing(route, freeRoam.T, scene, rc);
+  worldRace = { rc, route, dressing };
+  model = route;
+  env.terrain = route.terrain;
+  // the race sets its own time of day
+  if (rc.sky != null && rc.sky !== S.skyIdx) { S.skyIdx = rc.sky; S.skyChosen = true; swapSky(); }
+  cfg = { mode: 'race', bots: S.bots, laps: rc.laps ?? S.laps };
+  hud.prepareMap(route);
+  rig.setTrackCams(route);
+  dressing.setAids(S.showLine, S.showBoards);
+  startRace();
+  // the fly-in: camera off the rig until it lands
+  const me = race.player;
+  drone = new DroneIntro(route, { x: car.x, y: car.y, z: car.z, yaw: car.yaw }, freeRoam.T, 13);
+  race.countdown = 3.4 + 13;                                   // lights start when the drone lands
+  document.body.classList.add('nohud');
+  hud.toast(rc.name, 2600);
+}
+
+function endWorldRace(backToGate = true) {
+  if (!worldRace) return;
+  const { rc, dressing } = worldRace;
+  dressing.dispose();
+  if (bots) for (const b of bots.list) if (b.mesh) scene.remove(b.mesh);
+  if (items) items.dispose();
+  bots = null; items = null; race = null; drone = null;
+  model = freeRoam; env.terrain = freeRoam.terrain;
+  cfg = { mode: 'cruise', bots: 0, laps: 1 };
+  hud.prepareMap(freeRoam);
+  document.body.classList.toggle('nohud', !S.hudOn);
+  if (backToGate) {
+    const nr = freeRoam.nearest(rc.gate[0], rc.gate[1]);
+    car.reset(nr.p.x, nr.p.z, Math.atan2(nr.p.tx, nr.p.tz), freeRoam.heightAt(nr.p.x, nr.p.z) + 0.3);
+    for (let i = 0; i < 60; i++) car.step(1 / 120, { throttle: 0, brake: 1, steer: 0, handbrake: 0 }, env, S.stability);
+  }
+  worldRace = null;
+}
+
+// sky, fog, lights only — the buildings keep their day faces
+function swapSky() {
+  const skyKey = SKY_CYCLE[S.skyIdx];
+  if (skyMesh) scene.remove(skyMesh);
+  if (lights) { scene.remove(lights.hemi, lights.dir, lights.dir.target); }
+  skyMesh = makeSky(scene, skyKey);
+  lights = applyLighting(scene, skyKey);
+  setHeadlights(carMesh, skyKey === 'night');
+}
+
+function openMap() {
+  if (!freeRoam || worldRace) return;
+  if (!mapScreen) mapScreen = new MapScreen({ T: freeRoam.T, input, S, onPick: rc => { S.paused = false; startWorldRace(rc); }, onClose: () => { S.paused = false; } });
+  mapScreen.setPlayer(car.x, car.z, car.yaw);
+  S.paused = true;
+  mapScreen.show();
 }
 
 const allCars = () => bots ? [car, ...bots.cars] : [car];
@@ -285,6 +356,7 @@ function frame() {
   let dt = Math.min(now - last, 0.1);
   last = now;
   screens.update(dt);
+  if (mapScreen && mapScreen.active) { mapScreen.update(dt); renderer.render(scene, camera); input.endFrame(); return; }
   if (!S.running || (screens.active && !attract) || S.paused) {
     if (screens.current === 'car' || screens.current === 'track') screens.renderShowcase(renderer, camera.aspect);
     else renderer.render(scene, camera);
@@ -371,7 +443,11 @@ function frame() {
   wasLanding = car.landing > 0.25;
   if (car.airborne && car.airTime > 0.35 && !airToast) airToast = true;
   if (!car.airborne && airToast) { airToast = false; if (car.bestAir > 0.6) hud.toast('AIR  ' + car.bestAir.toFixed(2) + 's', 1200); }
-  rig.update(dt, car, input.mouse);
+  if (drone && !drone.done) {
+    drone.update(dt, camera);
+    if (input.tapped('enter') || input.tapped(' ') || input.padTapped('a') || input.padTapped('start')) drone.skip();
+    if (drone.done) { race.countdown = Math.min(race.countdown, 3.4); document.body.classList.toggle('nohud', !S.hudOn); camera.fov = 62; }
+  } else rig.update(dt, car, input.mouse);
   if (world.update) world.update(camera.position.x, camera.position.z);
   if (skyMesh) skyMesh.position.copy(camera.position);
   if (lights) {
@@ -479,13 +555,15 @@ function handleKeys() {
   if (input.tapped('z')) { S.auto = !S.auto; hud.toast(S.auto ? 'AUTOPILOT — sit back' : 'AUTOPILOT OFF', 1400); }
   if (input.tapped('f')) { S.frozen = !S.frozen; if (S.frozen) rig.mode = 'orbit'; hud.toast(S.frozen ? 'FROZEN — drag to orbit' : 'ROLLING', 1200); }
   if (input.tapped('r')) { if (race && race.state === 'finished') startRace(); else if (race) rescue(); else resetCar(false); }
+  if (input.tapped('m') && freeRoam) { if (worldRace) endWorldRace(true); else openMap(); }
+  if (input.padTapped('back') && freeRoam && !worldRace) openMap();
   if (input.tapped('t') && props) props.reset();
   if (input.tapped('t')) { if (race) startRace(); else resetCar(true); }
   if (input.tapped('x')) { skid.clear(); smoke.clear(); hud.toast('MARKS CLEARED', 900); }
   if (input.tapped('n')) { S.skyIdx = (S.skyIdx + 1) % SKY_CYCLE.length; S.skyChosen = true; reloadSky(); }
   if (input.tapped('m')) hud.toast('SOUND ' + (audio.toggle() ? 'ON' : 'OFF'), 900);
   if (input.tapped('u')) { S.unitMph = !S.unitMph; }
-  if (input.tapped('escape') || input.tapped('tab')) openMenu();
+  if (input.tapped('escape') || input.tapped('tab')) { if (worldRace) endWorldRace(true); else openMenu(); }
   if (S.shorts && input.tapped('z')) S.auto = true;         // shorts stays on autopilot
 }
 
@@ -500,6 +578,8 @@ function reloadSky() {
 const screens = new Screens({
   input, S, PRESETS, CAR_ORDER, TIERS, TRACKS, TRACK_ORDER, getModel, renderer,
   onGo: () => go(),
+  // RACE mode lives in the world: after the car, the map
+  onMap: () => { S.track = 'sanoozi'; attract = false; S.paused = false; screens.hide(); go(); setTimeout(() => openMap(), 60); },
 });
 
 function openMenu() {
@@ -574,6 +654,8 @@ if (q.has('go') || q.has('shorts')) {
   if (q.has('cam')) rig.mode = q.get('cam');
   if (q.has('auto')) S.auto = true;
   if (q.has('cd') && race) race.countdown = +q.get('cd');    // short lights for screenshots
+  if (q.has('race') && freeRoam) { const rc = RACES.find(r => r.id === q.get('race')); if (rc) { startWorldRace(rc); if (q.has('cd')) race.countdown = +q.get('cd'); if (q.has('nodrone')) drone.skip(); } }
+  if (q.has('map') && freeRoam) setTimeout(() => openMap(), 100);
 } else if (q.has('screen')) {
   startAttract();
   screens.show(q.get('screen'));
