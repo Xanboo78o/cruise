@@ -5,7 +5,9 @@
 import * as THREE from 'three';
 import { Car } from './car.js';
 import { FlatTerrain } from './terrain.js';
-import { buildCar, placeStaticCar } from './carmesh.js';
+import { buildCar, placeStaticCar, loadAlienMesh } from './carmesh.js';
+import { VARIANTS } from './world/oo.js';
+import { PRICES } from './world/progress.js';
 
 const ORDER = ['title', 'who', 'mode', 'car', 'track'];
 const OO_NAMES = { oobi: 'OOBI', oodi: 'OODI', ooli: 'OOLI', oopi: 'OOPI', oozi: 'OOZI' };
