@@ -291,6 +291,7 @@ export class Screens {
           if (n.up) this.optRow = 2;
         }
         if (n.ok) { this.pickMode(modes[this.modeIdx]); }
+        if (this.o.input.tapped('i')) this.o.onSignIn && this.o.onSignIn();   // I for identity
         if (n.back) this.show('who');
         this.renderMode();
         break;
@@ -433,10 +434,11 @@ export class Screens {
 
   bindMouse() {
     this.root.addEventListener('click', e => {
-      const t = e.target.closest('[data-oo],[data-mode],[data-bots],[data-laps],[data-grid],[data-car],[data-track],[data-sky],[data-go],[data-back],[data-next],[data-prev]');
+      const t = e.target.closest('[data-signin],[data-oo],[data-mode],[data-bots],[data-laps],[data-grid],[data-car],[data-track],[data-sky],[data-go],[data-back],[data-next],[data-prev]');
       if (!t) { if (this.current === 'title') this.show('mode'); return; }
       const S = this.o.S;
-      if (t.dataset.oo) { S.oo = t.dataset.oo; this.renderWho(); this.showcaseOo(S.oo); this.o.onOo && this.o.onOo(S.oo); }
+      if (t.dataset.signin != null) { this.o.onSignIn && this.o.onSignIn(); }
+      else if (t.dataset.oo) { S.oo = t.dataset.oo; this.renderWho(); this.showcaseOo(S.oo); this.o.onOo && this.o.onOo(S.oo); }
       else if (t.dataset.mode) { this.modeIdx = ['race', 'cruise', 'shorts'].indexOf(t.dataset.mode); this.pickMode(t.dataset.mode); }
       else if (t.dataset.bots) { S.bots = +t.dataset.bots; this.renderMode(); }
       else if (t.dataset.laps) { S.laps = +t.dataset.laps; this.renderMode(); }

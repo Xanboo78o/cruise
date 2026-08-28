@@ -16,7 +16,8 @@ export class Progress {
     this.load();
   }
   load() { try { const d = JSON.parse(localStorage.getItem(KEY)); if (d) this.data = { ...this.data, ...d, found: { fig: [], photo: [], ...(d.found || {}) } }; } catch {} }
-  save() { try { localStorage.setItem(KEY, JSON.stringify(this.data)); } catch {} }
+  save() { try { localStorage.setItem(KEY, JSON.stringify(this.data)); } catch {} if (this.onSave) this.onSave(this.data); }
+  replace(data) { this.data = data; this.save(); }
 
   medalFor(c, value) { const m = c.medal; if (!m) return 4; let k = 0; for (let i = 0; i < 4; i++) if (value >= m[i]) k = i + 1; return k; }
   // record a result; returns true if it's a new best

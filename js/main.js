@@ -22,11 +22,13 @@ import { RACES } from './world/races.js';
 import { RaceDressing } from './world/dressing.js';
 import { DroneIntro } from './world/drone.js';
 import { MapScreen } from './world/mapscreen.js';
+import { Arrival } from './world/arrival.js';
 import { Population } from './world/oo.js';
 import { Peds } from './world/peds.js';
 import { Traffic } from './world/traffic.js';
 import { ChallengeWorld } from './world/challenges.js';
 import { Progress } from './world/progress.js';
+import { Cloud, mergeProgress } from './cloud.js';
 import { autoDrive, AUTO_AIDS } from './driver.js';
 import { Items, ITEM_INFO } from './items.js';
 import { Bots } from './bots.js';
@@ -66,10 +68,20 @@ const car = new Car(S.carId, PRESETS);
 let carMesh, ghostMesh, paceMesh, world, model, skyMesh, lights;
 let skid, smoke, items = null, bots = null, race = null, props = null;
 let freeRoam = null, worldRace = null, drone = null, mapScreen = null;   // the city, the race inside it, the fly-in
+let arrival = null;                                                       // the saucer, once
 let population = null, peds = null, traffic = null;                       // the Oo, on foot and in cars
 let challenges = null;                                                    // traps, drift zones, jumps, figurines, photos
 let lightsNight = false;
 const progress = new Progress();                                           // medals, cash, cars, stickers
+const cloud = new Cloud();                                                 // …and where they go when you sign in
+let cloudSaveT = null;
+progress.onSave = data => { clearTimeout(cloudSaveT); cloudSaveT = setTimeout(() => cloud.save(data), 1500); };
+function refreshAccountChip() { const c = document.getElementById('signinChip'); if (c) c.textContent = cloud.email ? ('✓ ' + cloud.email + '  ·  I to sign out') : 'SIGN IN · email'; }
+cloud.onChange = async () => {
+  refreshAccountChip();
+  if (cloud.user) { const remote = await cloud.load(); progress.replace(mergeProgress(progress.data, remote)); hud.toast('SAVES SYNCED · ' + cloud.email, 2000); }
+};
+cloud.ready.then(async ok => { refreshAccountChip(); if (ok && cloud.user) { const remote = await cloud.load(); if (remote) progress.replace(mergeProgress(progress.data, remote)); } });
 S.hour = 10;                                                              // the city's clock, 24 h every 20 real minutes
 const modelCache = new Map();
 
@@ -161,6 +173,13 @@ function startCruise() {
     if (challenges) challenges.dispose();
     challenges = new ChallengeWorld(model.T, scene, progress);
     model.ramps = challenges;                                  // the ramps are part of the ground
+    // the first time: the saucer brings you in
+    let seen = false; try { seen = localStorage.getItem('cruise.arrived') === '1'; } catch {}
+    if (!seen && !attract && !DBG_AT) {
+      arrival = new Arrival(scene, model.T, { x: car.x, z: car.z, yaw: car.yaw }, 12);
+      document.body.classList.add('nohud');
+      try { localStorage.setItem('cruise.arrived', '1'); } catch {}
+    }
     return;
   }
   if (model.def.id === 'city') {
@@ -419,8 +438,9 @@ function frame() {
   if (!S.frozen) {
     acc += dt;
     let steps = 0;
+    const arriving = arrival && !arrival.done;
     while (acc >= STEP && steps < 8) {
-      car.step(STEP, inp, env, autoNow ? AUTO_AIDS : S.stability);
+      if (!arriving) car.step(STEP, inp, env, autoNow ? AUTO_AIDS : S.stability);
       if (model.collide) model.collide(car);
       if (bots) {
         bots.step(STEP, env, allCars(), progOf, race ? race.progOf(car) : null, items, holding);
@@ -446,6 +466,7 @@ function frame() {
           progress.raceDone(pos, n); progress.earn(cash);
           const medal = pos === 1 ? 4 : pos === 2 ? 3 : pos === 3 ? 2 : 1;
           progress.result('race:' + worldRace.rc.id, n - pos, medal);
+          if (race.player.best != null) cloud.pushBest('lap:' + worldRace.rc.id, -race.player.best, (S.oo || 'oo').toUpperCase(), S.carId);
           hud.toast(`P${pos} · +$${cash}`, 3000);
         }
       }
@@ -489,7 +510,12 @@ function frame() {
   wasLanding = car.landing > 0.25;
   if (car.airborne && car.airTime > 0.35 && !airToast) airToast = true;
   if (!car.airborne && airToast) { airToast = false; if (car.bestAir > 0.6) hud.toast('AIR  ' + car.bestAir.toFixed(2) + 's', 1200); }
-  if (drone && !drone.done) {
+  if (arrival && !arrival.done) {
+    const cy = arrival.update(dt, camera);
+    if (cy != null) { car.y = cy; car.vy = 0; car.vx = car.vz = 0; car.u = car.v = 0; }
+    if (input.tapped('enter') || input.tapped(' ') || input.padTapped('a') || input.padTapped('start')) arrival.skip();
+    if (arrival.done) { document.body.classList.toggle('nohud', !S.hudOn); camera.fov = 62; camera.updateProjectionMatrix(); hud.toast('WELCOME TO SAN OOZI', 2400); }
+  } else if (drone && !drone.done) {
     drone.update(dt, camera);
     if (input.tapped('enter') || input.tapped(' ') || input.padTapped('a') || input.padTapped('start')) drone.skip();
     if (drone.done) { race.countdown = Math.min(race.countdown, 3.4); document.body.classList.toggle('nohud', !S.hudOn); camera.fov = 62; }
@@ -649,6 +675,13 @@ const screens = new Screens({
   onMap: () => { S.track = 'sanoozi'; attract = false; S.paused = false; screens.hide(); go(); setTimeout(() => openMap(), 60); },
   onOo: v => { S.oo = v; if (carMesh) setDriver(carMesh, v); try { localStorage.setItem('cruise.oo', v); } catch {} },
   progress,
+  onSignIn: async () => {
+    if (cloud.email) { await cloud.signOut(); refreshAccountChip(); return; }
+    const email = prompt('Your email — a sign-in link gets sent there. No password, ever.');
+    if (!email) return;
+    const { error } = await cloud.signIn(email.trim());
+    alert(error ? 'Could not send the link: ' + error : 'Check your inbox for the link. Click it, and your saves follow you.');
+  },
   onBuy: id => { hud.toast('BOUGHT · ' + PRESETS[id].label, 1500); },
   onNoCash: () => { hud.toast('NOT ENOUGH CASH — race for it', 1500); },
 });
@@ -729,6 +762,7 @@ if (q.has('go') || q.has('shorts')) {
   if (q.has('cd') && race) race.countdown = +q.get('cd');    // short lights for screenshots
   if (q.has('race') && freeRoam) { const rc = RACES.find(r => r.id === q.get('race')); if (rc) { startWorldRace(rc); if (q.has('cd')) race.countdown = +q.get('cd'); if (q.has('nodrone')) drone.skip(); } }
   if (q.has('map') && freeRoam) setTimeout(() => openMap(), 100);
+  if (q.has('arrive') && freeRoam) { arrival = new Arrival(scene, freeRoam.T, { x: car.x, z: car.z, yaw: car.yaw }, 12); document.body.classList.add('nohud'); }
 } else if (q.has('screen')) {
   startAttract();
   screens.show(q.get('screen'));
