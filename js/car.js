@@ -475,6 +475,9 @@ export class Car {
     this.frontSlide = (w[0].slide + w[1].slide) * 0.5;
     this.rearSlide = (w[2].slide + w[3].slide) * 0.5;
     this.wheelSpin = Math.max(0, Math.max(w[2].kappa, w[3].kappa, w[0].kappa, w[1].kappa));
+    // how far past the tyre's peak (0.2) the worst corner is — rests at ~0 in a straight line,
+    // unlike `slide`, which counts the slip a tyre needs just to make thrust
+    this.scrub = Math.max(...w.map(x => Math.hypot(x.kappa, x.sy)));
     this.spun = Math.abs(this.driftAngle) > 88 && this.speed > 5;
     if (this.airborne) { this.airTime += dt; }
     else { if (this.airTime > this.bestAir) this.bestAir = this.airTime; this.airTime = 0; }

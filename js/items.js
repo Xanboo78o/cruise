@@ -37,8 +37,11 @@ export class Items {
     const geo = new THREE.BoxGeometry(2.2, 2.2, 2.2);
     const edges = new THREE.EdgesGeometry(geo);
     const step = 150, lanes = [-hw * 0.55, 0, hw * 0.55];
-    for (let d = 90; d < m.length - 40; d += step) {
-      const s = m.sampleAtDistance(d);
+    // measured from the start line, not from s=0: at s=0 the first row landed
+    // in the middle of the grid and everyone collected an item during the lights
+    const startS = m.samples[Math.floor((m.def.startIndex || 0) * m.samples.length) % m.samples.length].s;
+    for (let d0 = 130; d0 < m.length - 130; d0 += step) {
+      const s = m.sampleAtDistance((startS + d0) % m.length);
       for (const lane of lanes) {
         const x = s.x + s.nx * lane, z = s.z + s.nz * lane;
         const y = m.heightAt(x, z) + 1.6;

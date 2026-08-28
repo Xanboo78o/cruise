@@ -176,7 +176,7 @@ export const PRESETS = {
     mass: 190, track: 1.0, cgH: 0.34,
     freq: [3.2, 3.2], damping: 0.6, arb: [0.6, 0.6], travel: 0.03, droop: 0.04,
     grip: [1.15, 1.36], loadSens: 0.06, cd: 0.8, area: 0.9, rollRes: 0.02, wheelInertia: 0.15,   // fat rears: a kart that oversteers at 40 mph is unstable, not fun
-    torque: 34, idle: 1800, redline: 11000, engineBrake: 6, gears: [2.2, 1.5], finalDrive: 3.2,
+    torque: 34, idle: 1800, redline: 11000, engineBrake: 6, gears: [5.0, 3.3], finalDrive: 3.2,
     drive: 'rwd', diffLock: 1.0, brakeG: 1.3, brakeBias: 0.6, maxSteer: 0.42, steerFalloff: 0.45,
   }),
 
@@ -283,7 +283,7 @@ export const PRESETS = {
     mass: 190, track: 1.0, cgH: 0.34,
     freq: [3.2, 3.2], damping: 0.6, arb: [0.6, 0.6], travel: 0.03, droop: 0.04,
     grip: [1.15, 1.36], loadSens: 0.06, cd: 0.8, area: 0.9, rollRes: 0.02, wheelInertia: 0.15,
-    torque: 34, idle: 1800, redline: 11000, engineBrake: 6, gears: [2.2, 1.5], finalDrive: 3.2,
+    torque: 34, idle: 1800, redline: 11000, engineBrake: 6, gears: [5.0, 3.3], finalDrive: 3.2,
     drive: 'rwd', diffLock: 1.0, brakeG: 1.3, brakeBias: 0.6, maxSteer: 0.42, steerFalloff: 0.45,
   }),
   kart3: build({
@@ -292,7 +292,7 @@ export const PRESETS = {
     mass: 185, track: 1.0, cgH: 0.34,
     freq: [3.2, 3.2], damping: 0.6, arb: [0.6, 0.6], travel: 0.03, droop: 0.04,
     grip: [1.15, 1.36], loadSens: 0.06, cd: 0.8, area: 0.9, rollRes: 0.02, wheelInertia: 0.15,
-    torque: 38, idle: 1800, redline: 11500, engineBrake: 6, gears: [2.2, 1.5], finalDrive: 3.2,
+    torque: 38, idle: 1800, redline: 11500, engineBrake: 6, gears: [5.0, 3.3], finalDrive: 3.2,
     drive: 'rwd', diffLock: 1.0, brakeG: 1.3, brakeBias: 0.6, maxSteer: 0.42, steerFalloff: 0.45,
   }),
 };

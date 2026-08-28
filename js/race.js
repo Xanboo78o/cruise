@@ -21,8 +21,9 @@ export class Race {
     const m = this.model;
     const order = [...this.entrants.filter(e => !e.isPlayer), ...this.entrants.filter(e => e.isPlayer)];
     order.forEach((e, i) => {
-      const back = 12 + i * 9;
-      const lat = (i % 2 ? 1 : -1) * Math.min(4.5, m.halfWidth * 0.32);
+      const row = Math.floor(i / 2);
+      const back = 12 + row * 9;                             // two abreast per row, not a single-file zigzag
+      const lat = (i % 2 ? 1 : -1) * Math.min(7, m.halfWidth * 0.45);
       const d = (this.startS - back + m.length) % m.length;
       const p = m.sampleAtDistance(m.closed ? d : Math.max(4, this.startS - back));
       const x = p.x + p.nx * lat, z = p.z + p.nz * lat;

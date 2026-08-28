@@ -77,7 +77,8 @@ export class HUD {
     e.speed.textContent = Math.round(s.speedDisplay);
     e.unit.textContent = s.unit;
     e.gear.textContent = s.reverse ? 'R' : s.gear;
-    e.rpmBar.style.transform = `scaleX(${Math.min(s.rpm, 1)})`;
+    // a race tach: the needle starts at half revs, or the arcade engine pins it wide open all race
+    e.rpmBar.style.transform = `scaleX(${Math.max(0, Math.min(s.rpm, 1) - 0.5) * 2})`;
     e.rpmBar.classList.toggle('red', s.rpm > 0.93);
     e.lapTime.textContent = fmt(s.lap);
     e.bestTime.textContent = s.best ? fmt(s.best) : '--.---';

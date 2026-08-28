@@ -44,7 +44,7 @@ export class Screens {
     ring.rotation.x = -Math.PI / 2; ring.position.y = 0.01;
     sc.add(ring);
     const cam = new THREE.PerspectiveCamera(34, 1, 0.1, 100);
-    this.showcase = { scene: sc, cam, turn: new THREE.Group(), ring, diorama: null };
+    this.showcase = { scene: sc, cam, turn: new THREE.Group(), ring, disc, diorama: null };
     sc.add(this.showcase.turn);
   }
 
@@ -117,7 +117,7 @@ export class Screens {
     const m = this.o.getModel(id);
     const b = m.bounds, cx = (b.minX + b.maxX) / 2, cz = (b.minZ + b.maxZ) / 2;
     const span = Math.max(b.maxX - b.minX, b.maxZ - b.minZ) || 1;
-    const k = 9.5 / span;
+    const k = 7.6 / span;
     let ylo = 1e9; for (const s of m.samples) ylo = Math.min(ylo, s.y);
     const pos = [], col = [], idx = [];
     const hw = Math.max(m.halfWidth * k, 0.09);
@@ -151,9 +151,9 @@ export class Screens {
     const { scene, cam, turn } = this.showcase;
     cam.aspect = aspect; cam.updateProjectionMatrix();
     turn.rotation.y = this.t * (this.current === 'track' ? 0.25 : 0.55);
-    this.showcase.ring.visible = this.current !== 'track';
+    this.showcase.ring.visible = this.showcase.disc.visible = this.current !== 'track';
     if (this.current === 'track') {
-      cam.position.set(0, 12.5, 12.5); cam.lookAt(0, 0.6, 0);
+      cam.position.set(0, 11.5, 12.5); cam.lookAt(0, 2.3, 0);   // aim high so the ribbon sits low, clear of the GO button
     } else {
       const p = this.o.PRESETS[this.o.CAR_ORDER[this.carIdx]];
       const L = p.lf + p.lr;

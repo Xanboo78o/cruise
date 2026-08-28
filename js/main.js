@@ -384,7 +384,7 @@ function frame() {
     })),
     trackName: model.def.name, carName: car.p.label,
     aids: aidsLabel(),
-    driftAngle: car.driftAngle, driftHold, grip: Math.min(car.rearSlide / 16, 1), air: car.airborne,
+    driftAngle: car.driftAngle, driftHold, grip: Math.min(Math.max(0, car.scrub - 0.05) / 0.5, 1), air: car.airborne,
     driftCharge: car.driftCharge, driftLevel: car.driftLevel, boost: car.boostT > 0, stunned: car.stunT > 0, bump: car.bumpT > 0.3,
     throttle: inp.throttle, brake: inp.brake, steer: inp.steer,
     carX: car.x, carZ: car.z, carYaw: car.yaw,
