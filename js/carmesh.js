@@ -199,6 +199,35 @@ export function updateCarMesh(mesh, car, dt, braking, time = 0) {
   if (u.zapRing.visible) { u.zapRing.rotation.z = time * 12; u.zapRing.material.color.setHex(Math.sin(time * 40) > 0 ? 0xffe066 : 0xffffff); }
 }
 
+// the Oo behind the wheel: the character lifted out of a kart, sat in the cabin
+const alienCache = new Map();
+function loadAlien(variant) {
+  if (!alienCache.has(variant)) alienCache.set(variant, new Promise(res => loader.load(`assets/models/kart-${variant}.glb`, g => {
+    const node = g.scene.getObjectByName('character');
+    if (!node) return res(null);
+    node.updateMatrixWorld(true);
+    let mesh = null;
+    node.traverse(n => { if (n.isMesh && !mesh) { const geo = n.geometry.clone(); geo.applyMatrix4(n.matrixWorld); geo.computeBoundingBox(); const bb = geo.boundingBox; geo.translate(-(bb.min.x + bb.max.x) / 2, -bb.min.y, -(bb.min.z + bb.max.z) / 2); const h = bb.max.y - bb.min.y; geo.scale(1 / h, 1 / h, 1 / h); mesh = new THREE.Mesh(geo, n.material.clone()); } });
+    res(mesh);
+  })));
+  return alienCache.get(variant);
+}
+export function setDriver(mesh, variant) {
+  const u = mesh.userData;
+  if (u.driver) { mesh.remove(u.driver); u.driver = null; }
+  loadAlien(variant).then(proto => {
+    if (!proto || u.driver) return;
+    const p = u.preset;
+    const d = proto.clone();
+    const size = Math.min(1.35, Math.max(0.9, p.track * 0.62));
+    d.scale.setScalar(size);
+    d.position.set(p.track * -0.16, 0.42 + p.tyre.rf * 0.6, (p.lf - p.lr) * 0.5 - 0.1);   // driver's side, sat down
+    d.castShadow = true;
+    mesh.add(d);
+    u.driver = d;
+  });
+}
+
 export function setHeadlights(mesh, on) {
   for (const b of mesh.userData.beams || []) b.intensity = on ? 26 : 0;
 }

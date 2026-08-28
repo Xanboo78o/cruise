@@ -7,7 +7,7 @@ import { PRESETS, CAR_ORDER, TIERS } from './presets.js';
 import { TrackModel } from './track.js';
 import { TRACKS, TRACK_ORDER } from './tracks.js';
 import { World, applyLighting, makeSky } from './world.js';
-import { buildCar, updateCarMesh, setCarOpacity, setHeadlights, placeStaticCar } from './carmesh.js';
+import { buildCar, updateCarMesh, setCarOpacity, setHeadlights, placeStaticCar, setDriver } from './carmesh.js';
 import { SkidMarks, Smoke } from './fx.js';
 import { CameraRig, MODE_LABEL } from './camera.js';
 import { Input } from './input.js';
@@ -24,6 +24,7 @@ import { DroneIntro } from './world/drone.js';
 import { MapScreen } from './world/mapscreen.js';
 import { Population } from './world/oo.js';
 import { Peds } from './world/peds.js';
+import { Traffic } from './world/traffic.js';
 import { autoDrive, AUTO_AIDS } from './driver.js';
 import { Items, ITEM_INFO } from './items.js';
 import { Bots } from './bots.js';
@@ -63,7 +64,7 @@ const car = new Car(S.carId, PRESETS);
 let carMesh, ghostMesh, paceMesh, world, model, skyMesh, lights;
 let skid, smoke, items = null, bots = null, race = null, props = null;
 let freeRoam = null, worldRace = null, drone = null, mapScreen = null;   // the city, the race inside it, the fly-in
-let population = null, peds = null;                                       // the Oo
+let population = null, peds = null, traffic = null;                       // the Oo, on foot and in cars
 S.hour = 10;                                                              // the city's clock, 24 h every 20 real minutes
 const modelCache = new Map();
 
@@ -90,6 +91,7 @@ function clearScene() {
   if (items) items.dispose();
   if (props) props.dispose();
   if (peds) { peds.dispose(); peds = null; }
+  if (traffic) { for (const f of traffic.list) if (f.mesh) scene.remove(f.mesh); traffic = null; }
   for (const o of [...scene.children]) scene.remove(o);
   scene.children.length = 0;
   items = null; bots = null; race = null; props = null;
@@ -144,6 +146,11 @@ function startCruise() {
     if (peds) peds.dispose();
     peds = new Peds(scene, population, model.T);
     peds.onBounce = (a, c) => { if (c === car) { input.rumble(0.5, 0.2, 90); if (Math.random() < 0.35) hud.toast(['OO!', 'HA!', 'WHEEE', 'AGAIN!', 'NICE ONE'][Math.floor(Math.random() * 5)] + '  — ' + a.name, 1100); } };
+    // traffic: named Oo in their own cars, following the roads
+    traffic = new Traffic(model.T, population, 22);
+    traffic.onAdd = f => { f.mesh = buildCar(PRESETS[f.car.presetName]); setDriver(f.mesh, f.oo.variant); scene.add(f.mesh); };
+    traffic.onRemove = f => { scene.remove(f.mesh); f.mesh = null; };
+    traffic.populate(car.x, car.z, env, [car]);
     return;
   }
   if (model.def.id === 'city') {
@@ -188,6 +195,7 @@ function startWorldRace(rc) {
   route.collide = c => freeRoam.collide(c);
   const dressing = new RaceDressing(route, freeRoam.T, scene, rc);
   worldRace = { rc, route, dressing };
+  if (traffic) { for (const f of traffic.list) if (f.mesh) scene.remove(f.mesh); traffic.list.length = 0; }
   model = route;
   env.terrain = route.terrain;
   // the race sets its own time of day
@@ -222,6 +230,7 @@ function endWorldRace(backToGate = true) {
     for (let i = 0; i < 60; i++) car.step(1 / 120, { throttle: 0, brake: 1, steer: 0, handbrake: 0 }, env, S.stability);
   }
   worldRace = null;
+  if (traffic) traffic.populate(car.x, car.z, env, [car]);
 }
 
 // sky, fog, lights only — the buildings keep their day faces
@@ -409,6 +418,11 @@ function frame() {
         collideCars(allCars(), (a, b, j) => { if ((a === car || b === car) && j > 400) { rig.kick(Math.min(1, j / 6000)); input.rumble(Math.min(1, j / 5000), 0.4, 140); } });
       }
       if (props) props.step(STEP, allCars());
+      if (traffic && !worldRace) {
+        traffic.step(STEP, env, [car]);
+        if (model.collide) for (const c of traffic.cars) model.collide(c);
+        collideCars([car, ...traffic.cars], (a, b, j) => { if ((a === car || b === car) && j > 400) { rig.kick(Math.min(1, j / 6000)); input.rumble(Math.min(1, j / 5000), 0.4, 140); } });
+      }
       acc -= STEP; steps++;
     }
     if (race) {
@@ -463,7 +477,12 @@ function frame() {
   if (world.update) world.update(camera.position.x, camera.position.z);
   if (freeRoam) {
     S.hour = (S.hour + dt * (24 / 1200)) % 24;
-    if (peds) peds.update(dt, camera.position.x, camera.position.z, allCars(), S.hour, worldRace ? worldRace.rc.gate : null);
+    const everyone = traffic && !worldRace ? [...allCars(), ...traffic.cars] : allCars();
+    if (peds) peds.update(dt, camera.position.x, camera.position.z, everyone, S.hour, worldRace ? worldRace.rc.gate : null);
+    if (traffic && !worldRace) {
+      if (Math.random() < dt * 0.5) traffic.populate(car.x, car.z, env, [car]);
+      for (const f of traffic.list) if (f.mesh) updateCarMesh(f.mesh, f.car, dt, f.out.brake > 0.05, time);
+    }
   }
   if (skyMesh) skyMesh.position.copy(camera.position);
   if (lights) {
@@ -495,7 +514,7 @@ function frame() {
     carX: car.x, carZ: car.z, carYaw: car.yaw,
     ghost: ghostMesh.visible ? ghostMesh.position : null,
     pace: paceMesh.visible ? pace : null,
-    others: bots ? bots.cars : null,
+    others: bots ? bots.cars : (traffic && !worldRace ? traffic.cars : null),
     item: car.item ? ITEM_INFO[car.item] : null,
     race: race ? { state: race.state, countdown: race.countdown, t: race.t, pos: me.pos, total: race.entrants.length,
                    lap: me.lap, laps: race.laps, standings: race.state === 'finished' ? race.standings() : null } : null,
@@ -662,6 +681,7 @@ if (q.has('mode')) S.mode = q.get('mode');
 if (q.has('bots')) S.bots = +q.get('bots');
 if (q.has('laps')) S.laps = +q.get('laps');
 if (q.has('grid')) S.grid = q.get('grid');
+if (q.has('oo')) S.oo = q.get('oo');
 resize();
 if (q.has('go') || q.has('shorts')) {
   S.shorts = q.has('shorts');
