@@ -1,9 +1,66 @@
-# CRUISE
+# CRUISE — San Oozi
 
-A driving game with nothing to win. No opponents, no countdown, no position
-counter. You pick a car, pick a road, and go and find the limit — the racing
-line, the brake points, the exact moment the rear steps out — for as long as you
-feel like it.
+An arcade drift racer set in **San Oozi**: a coastal city with a mountain behind
+it and a Grand Canyon cut into the mountain, home to eight hundred named aliens
+(the Oo) who can't be hurt — which is why the whole planet is motorsport-mad.
+
+Live at <https://xanboo78o.github.io/cruise/>.
+
+## The world
+
+- **6 × 4.6 km**, hand-drawn in `js/world/spec.js`: the coast, the districts
+  (downtown, the harbor, the docks, Oozi Beach, Westside, Eastside, the speedway,
+  the airfield, the gold mine, the lookout), the canyon path, and 55 roads by type
+  — expressway ring, boulevards, the downtown grid, winding hill roads, gravel
+  forest tracks, the coast road, the canyon floor, the pier.
+- One height field (`js/world/terrain.js`) for everything: the mountain, the
+  canyon carve, district plateaus, and every road cut and filled into the land at
+  a real grade. The wheels, the trees and the road mesh all ask the same function.
+- Forest everywhere that isn't something else, instanced per 300 m chunk.
+- Downtown towers with billboards, the square with the big SAN OOZI sign, sheds and
+  cranes on the water, houses along the suburb streets, huts and umbrellas on the
+  beach, a pier you can drive off the end of.
+- A live day: the sky, fog, light and headlights follow the city clock (24 h every
+  20 minutes).
+
+## Races are places
+
+Twelve races live in the city (`js/world/races.js`): Harbor Loop, The Docks (at
+night), Boardwalk Dash, Oozi Speedway, The Airfield, Touge Battle, Canyon Sprint,
+Gold Mine, Rim Express Run, West Forest Stage, Seawall Sprint, Docks Drift Zone.
+A race is a path through the road network (`Route`); when it's on, walls go up
+down both edges in the district's material (concrete, tyres, rock, timber), every
+side street gets plugged, a gate arch with the name stands on the line, and a
+13-second FPV drone flies you over the route and down onto the grid. Pick them
+from the map (`M`) — Forza-style — or drive up to the gate.
+
+## The Oo
+
+Eight hundred of them, deterministic from a seed: name, shape (five kinds, lifted
+from the Kenney karts), a home beside a suburb street, a job in a district, a car,
+a favourite race and a shift. They commute, work, walk the pavements, crowd the
+gate of whatever race is on, and drive the traffic (real cars on the real physics
+— bump them). Hit one and it bounces, tumbles, gets up laughing. You pick yours on
+the WHO screen; it sits in every car you drive.
+
+## Challenges and the economy
+
+Speed traps, drift zones, stunt ramps (real ground — the pier end, the canyon
+rim, a car-park roof, a dock crane, the runway), photo spots and thirty golden
+figurines hidden round the map. Everything pays cash and a medal (bronze to
+platinum); race finishes pay by position. Most cars are yours from the start; a
+few cost money (HYPER, FORMULA, the trucks) and you buy them on the car screen.
+
+## Saves
+
+Local always. Sign in with your email on the HOW screen (a magic link, no
+password) and your progress follows you; your bests go to a public board.
+
+## How you arrive
+
+By saucer. The first time you press GO, a ship comes in over the sea, hovers
+over Oozi Square and sets your car down. One planet of many.
+
 
 Two ways to play it:
 - **RACE** — a grid of bots (3 to 11), lights out, item boxes, three laps, a
