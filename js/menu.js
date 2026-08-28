@@ -155,7 +155,9 @@ export class Screens {
     cam.aspect = aspect; cam.updateProjectionMatrix();
     turn.rotation.y = this.t * (this.current === 'track' ? 0.25 : 0.55);
     this.showcase.ring.visible = this.showcase.disc.visible = this.current !== 'track';
-    if (this.current === 'track') {
+    if (this.current === 'who') {
+      cam.position.set(4.2, 2.6, 7.2); cam.lookAt(0, 1.3, 0);
+    } else if (this.current === 'track') {
       cam.position.set(0, 11.5, 12.5); cam.lookAt(0, 2.3, 0);   // aim high so the ribbon sits low, clear of the GO button
     } else {
       const p = this.o.PRESETS[this.o.CAR_ORDER[this.carIdx]];

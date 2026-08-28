@@ -267,10 +267,12 @@ body.nohud .tc { display: none; }
 
 /* who */
 #sWho { justify-content: flex-start; padding-top: 34px; background: linear-gradient(180deg, rgba(5,7,12,0.0), rgba(5,7,12,0.45)); }
-.whoRow { display: flex; gap: 14px; margin-top: auto; }
+.whoRow { display: flex; gap: 14px; margin-top: auto; order: 3; }
 .whoRow .chip { font-size: 12px; letter-spacing: 3px; padding: 10px 18px; }
 .whoName { font-size: clamp(36px, 6vw, 72px); font-weight: 900; letter-spacing: 6px; transform: skewX(-6deg); background: linear-gradient(92deg, #fff, #ffd9a0); -webkit-background-clip: text; background-clip: text; color: transparent; }
-.whoBlurb { color: var(--dim); font-size: 12px; max-width: 420px; text-align: center; margin-bottom: auto; }
+.whoBlurb { color: var(--dim); font-size: 12px; max-width: 420px; text-align: center; order: 2; }
+#sWho .whoName { order: 1; margin-top: auto; }
+#sWho .nav { order: 4; }
 
 #sCar.locked .bigName b { background: linear-gradient(92deg, #888, #aaa); -webkit-background-clip: text; background-clip: text; }
 #sCar.locked .carIdx { color: #ffcf9a; }
