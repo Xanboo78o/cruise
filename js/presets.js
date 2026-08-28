@@ -15,7 +15,7 @@ const TAU = Math.PI * 2;
 // is traction-limited at something stupid, torque up to use it, drag up so the
 // top end doesn't leave the map, load sensitivity down so a lifted inside wheel
 // isn't a spin. The cars keep their characters relative to each other.
-const ARC = { torque: 3.4, grip: 1.55, loadSens: 0.6, brakeG: 1.5, cd: 1.3, steerFalloff: 0.85, cgH: 0.55 };
+const ARC = { torque: 3.4, grip: 1.55, loadSens: 0.6, brakeG: 1.5, cd: 2.3, steerFalloff: 0.85, cgH: 0.55 };
 // cgH: with 2 g of grip and a real CG height the inside wheels lift at 1.5 g and
 // the car two-wheels through every fast corner. Arcade cars sit low.
 

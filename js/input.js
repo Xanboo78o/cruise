@@ -43,7 +43,13 @@ export class Input {
     // the camera looking down +z that side is on the LEFT of the screen. So D
     // (screen right) is -1 in the sim's terms. Every steer value past this point
     // is in sim terms; only this file and the HUD trace know about the screen.
-    let steer = ((k.has('a') || k.has('arrowleft')) ? 1 : 0) - ((k.has('d') || k.has('arrowright')) ? 1 : 0);
+    const want = ((k.has('a') || k.has('arrowleft')) ? 1 : 0) - ((k.has('d') || k.has('arrowright')) ? 1 : 0);
+    // a key is a switch; a wheel isn't. Wind on over ~0.2 s, come off in ~0.08 s.
+    const now = performance.now() / 1000, dt = Math.min(0.05, now - (this._t || now)); this._t = now;
+    const cur = this._steer || 0;
+    const rate = (want === 0 || Math.sign(want) !== Math.sign(cur)) ? 12 : 5;
+    this._steer = cur + Math.max(-rate * dt, Math.min(rate * dt, want - cur));
+    let steer = this._steer;
     let handbrake = k.has(' ') ? 1 : 0;
     let usingPad = false;
 

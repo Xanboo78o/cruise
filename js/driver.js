@@ -29,7 +29,7 @@ export function autoDrive(car, model, pace = 0.85, out = {}, lane = 0) {
   const right = dx * cy - dz * sy, fwd = dx * sy + dz * cy;
   const dist = Math.max(2, Math.hypot(dx, dz));
   const alpha = Math.atan2(right, fwd);
-  const ease = 1 - (car.p.steerFalloff ?? 0.56) * Math.min(speed / 42, 1);   // the car's own steering map
+  const dMax = car.maxSteerNow(speed);                    // the car's own steering map
   let steer, spun = false;
 
   if (fwd < 2) {
@@ -49,7 +49,7 @@ export function autoDrive(car, model, pace = 0.85, out = {}, lane = 0) {
       const counter = Math.sign(ang) * Math.min(Math.abs(ang) * Math.PI / 180, 0.5) * 0.22 / (1 + speed / 50);
       delta += counter;
     }
-    steer = delta / (car.p.maxSteer * ease);
+    steer = delta / dMax;
     const pursuit = steer;
     // lane correction, scaled by speed: a fixed gain that is right at 30 mph
     // weaves the car at a full g at 80, and a weaving car cannot brake
@@ -60,9 +60,7 @@ export function autoDrive(car, model, pace = 0.85, out = {}, lane = 0) {
     const rWant = speed * model.line[li].k;               // what the road wants HERE, not 40 m on
     steer -= (car.r - rWant) * 0.24 / (1 + speed / 40);   // gentler hands at speed
     out.dbg = { pursuit, offTerm: -off * laneGain, yawTerm: -(car.r - rWant) * 0.24, rWant, alpha, dist };
-    // at speed, the wheel barely moves: full lock at 80 mph is 3 rad/s of yaw
-    const lockCap = Math.min(0.92, 14 / Math.max(speed, 1));
-    steer = Math.max(-lockCap, Math.min(lockCap, steer));
+    steer = Math.max(-1, Math.min(1, steer));           // the curvature cap does the rest
     steer = Math.max(-0.92, Math.min(0.92, steer));
   }
 

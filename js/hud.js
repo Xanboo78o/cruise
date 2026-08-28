@@ -42,7 +42,9 @@ export class HUD {
     const c = document.createElement('canvas');
     c.width = w; c.height = h;
     const g = c.getContext('2d');
-    const px = p => this.mapT.ox + p.x * this.mapT.s;
+    // seen from above with north (+z) up, +x is on the LEFT in a Y-up right-handed
+    // world — mirror x or the map disagrees with the windscreen
+    const px = p => w - (this.mapT.ox + p.x * this.mapT.s);
     const pz = p => this.mapT.h - (this.mapT.oz + p.z * this.mapT.s);
     g.lineCap = 'round'; g.lineJoin = 'round';
     g.strokeStyle = 'rgba(255,255,255,0.16)';
@@ -180,7 +182,7 @@ export class HUD {
     c.clearRect(0, 0, w, h);
     c.drawImage(this.mapPath, 0, 0);
     const T = this.mapT;
-    const P = (x, z) => [T.ox + x * T.s, T.h - (T.oz + z * T.s)];
+    const P = (x, z) => [w - (T.ox + x * T.s), T.h - (T.oz + z * T.s)];
     if (s.ghost) {
       const [gx, gy] = P(s.ghost.x, s.ghost.z);
       c.fillStyle = 'rgba(150,170,255,0.85)';
@@ -199,7 +201,7 @@ export class HUD {
     const [x, y] = P(s.carX, s.carZ);
     c.save();
     c.translate(x, y);
-    c.rotate(-s.carYaw + Math.PI);
+    c.rotate(s.carYaw + Math.PI);                         // mirrored map, mirrored heading
     c.fillStyle = '#fff';
     c.beginPath();
     c.moveTo(0, -5); c.lineTo(3.4, 4); c.lineTo(-3.4, 4);

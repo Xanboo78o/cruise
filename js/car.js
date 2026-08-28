@@ -124,16 +124,26 @@ export class Car {
     return { x: this.x + w.a * s + w.b * c, z: this.z + w.a * c - w.b * s };
   }
 
+  // How much wheel a full input is worth at this speed. The input asks for a
+  // path curvature, and the curvature is capped by lateral g — so full lock at
+  // 30 mph is a hairpin and full lock at 100 mph is a fast sweeper, never a spin.
+  maxSteerNow(speed) {
+    const kMax = Math.min(0.25, 15 / Math.max(speed * speed, 1));      // 1/m, ~1.5 g
+    return Math.min(this.p.maxSteer, Math.atan(this.L * kMax) * 1.25);  // 1.25: room for slip
+  }
+
   updateSteer(dt, inp, aids) {
     const p = this.p, speed = this.speed;
-    // lock falls away with speed — and keeps falling past 42 m/s, because at
-    // 130 mph half-lock is a spin, not a steering input
-    const ease = 1 - (p.steerFalloff ?? 0.56) * Math.min(speed / 42, 1.6);
-    let target = inp.steer * p.maxSteer * ease;
-    if (aids > 0 && Math.abs(this.slipR) > 0.14 && speed > 4) {
-      const need = -Math.sign(this.slipR) * Math.min(Math.abs(this.slipR), 0.55);
-      target += (need - target) * 0.34 * aids * Math.min(Math.abs(this.slipR) / 0.4, 1);
+    let target = inp.steer * this.maxSteerNow(speed);
+    // countersteer help: when the rear is out, point the fronts down the road.
+    // This is allowed past the curvature cap — catching a slide needs it.
+    if (aids > 0 && Math.abs(this.slipR) > 0.12 && speed > 4) {
+      const need = -Math.sign(this.slipR) * Math.min(Math.abs(this.slipR), 0.6);
+      const w = Math.min(0.75, 0.5 * aids) * Math.min(Math.abs(this.slipR) / 0.35, 1);
+      target += (need - target) * w;
     }
+    // handbrake = drift button: while held the car is allowed to rotate harder
+    if (inp.handbrake > 0.5 && speed > 6) target *= 1.5;
     const diff = target - this.steer;
     const unwinding = Math.abs(target) < Math.abs(this.steer) || Math.sign(target) !== Math.sign(this.steer);
     const rate = (unwinding ? 9.0 : 4.2 + 2.5 * Math.abs(diff)) * dt;

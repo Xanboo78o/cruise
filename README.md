@@ -13,6 +13,13 @@ Two ways to play it:
 
 And **SHORTS MODE**: a race on autopilot, 9:16, no HUD. Hit record, walk away.
 
+## Screens
+
+Title (a race plays behind it) → HOW (race / cruise / shorts, bots, laps) →
+WHAT (the car on a turntable, with stat bars) → WHERE (track outlines, time of
+day) → GO. Arrows / WASD / d-pad move, Enter / Space / A pick, Esc / B back.
+Mouse and touch work too. Esc in the game brings the screens back.
+
 ## Run it
 
 ```
@@ -26,6 +33,15 @@ You can skip the menu with a URL: `?t=harbor&c=gt&mode=race&bots=7&laps=3&go=1`
 — `t` is the track (`harbor`, `canyon`, `seawall`, `city`), `c` the car id from
 `js/presets.js`, `mode` race/cruise, `sky` 0-3, `cam` (`chase`, `low`, `hood`,
 `drone`, `tv`, `orbit`), plus `go`, `auto` and `shorts` as flags.
+
+## Steering
+
+Your input asks for a *path curvature*, and the curvature is capped by lateral
+g: full lock at 20 mph is a hairpin, full lock at 100 mph is a fast sweeper,
+never a spin. The keyboard is ramped (0.2 s on, 0.08 s off) so a tap is a nudge.
+Countersteer help and a yaw damper sit behind the aids slider (`,` `.`, default
+70%). Space is the drift button: rear grip drops and the car is allowed to
+rotate harder while it's held.
 
 ## The arcade layer
 

@@ -19,17 +19,20 @@ import { autoDrive, AUTO_AIDS } from './driver.js';
 import { Items, ITEM_INFO } from './items.js';
 import { Bots } from './bots.js';
 import { Race, collideCars } from './race.js';
+import { Screens } from './menu.js';
 
 const SKY_CYCLE = ['sunset', 'noon', 'dawn', 'night'];
 const MS = 2.23694;
 
 const S = {
   track: 'harbor', carId: 'hachi', unitMph: true,
-  stability: 0.5, showLine: true, showBoards: true,
+  stability: 0.7, showLine: true, showBoards: true,
   ghostOn: true, paceOn: false, pace: 0.85, auto: false, frozen: false,
   hudOn: true, vertical: false, skyIdx: 0, skyChosen: false, running: false,
-  mode: 'race', bots: 7, laps: 3,
+  mode: 'race', bots: 7, laps: 3, shorts: false, paused: false,
 };
+let attract = false;                      // a race plays behind the title screen
+let cfg = { mode: 'race', bots: 7, laps: 3 };   // what the loaded track is running (attract overrides S)
 
 const app = document.getElementById('app');
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -78,8 +81,9 @@ function clearScene() {
   items = null; bots = null; race = null;
 }
 
-function loadTrack(id) {
+function loadTrack(id, opts = {}) {
   S.track = id;
+  cfg = { mode: S.mode, bots: S.bots, laps: S.laps, ...opts };
   clearScene();
   model = getModel(id);
   env.terrain = model.terrain;
@@ -110,8 +114,9 @@ function loadTrack(id) {
   pace = new PaceCar(model, S.pace);
   loadBest();
 
-  if (S.mode === 'race') startRace();
+  if (cfg.mode === 'race') startRace();
   else resetCar(true);
+  S.running = true;
 }
 
 // ------------------------------------------------------------------- race
@@ -119,9 +124,9 @@ function startRace() {
   if (bots) for (const b of bots.list) if (b.mesh) scene.remove(b.mesh);
   if (items) items.dispose();
   items = new Items(model, scene);
-  bots = new Bots(model, S.bots, S.carId);
+  bots = new Bots(model, cfg.bots, S.carId);
   for (const b of bots.list) { b.mesh = buildCar(PRESETS[b.id]); scene.add(b.mesh); }
-  race = new Race(model, [{ car, name: car.p.label, isPlayer: true }, ...bots.list.map(b => ({ car: b.car, name: b.name }))], S.laps);
+  race = new Race(model, [{ car, name: car.p.label, isPlayer: true }, ...bots.list.map(b => ({ car: b.car, name: b.name }))], cfg.laps);
   race.grid();
   // settle everyone on their springs
   for (let i = 0; i < 90; i++) {
@@ -239,7 +244,7 @@ function updateTiming(dt) {
 }
 
 // ----------------------------------------------------------------- main loop
-let acc = 0, last = performance.now() / 1000;
+let acc = 0, last = performance.now() / 1000, attractT = 0;
 const STEP = 1 / 120;
 let itemHeld = false;
 
@@ -248,13 +253,21 @@ function frame() {
   const now = performance.now() / 1000;
   let dt = Math.min(now - last, 0.1);
   last = now;
-  if (!S.running) { renderer.render(scene, camera); input.endFrame(); return; }
+  screens.update(dt);
+  if (!S.running || (screens.active && !attract) || S.paused) {
+    if (screens.current === 'car') screens.renderShowcase(renderer, camera.aspect);
+    else renderer.render(scene, camera);
+    input.endFrame();
+    return;
+  }
   time += dt;
 
-  handleKeys();
+  const autoNow = S.auto || attract;
+  if (!screens.active) handleKeys();
   const raw = input.read();
   const holding = race && race.state === 'countdown';
-  let inp = S.auto ? autoDrive(car, model, S.pace) : raw;
+  let inp = autoNow ? autoDrive(car, model, S.pace) : raw;
+  if (DBG_INPUT) inp = { ...inp, ...DBG_INPUT };            // ?steer=1&thr=1: hold an input (screenshots)
   if (holding) inp = { throttle: 0, brake: 1, steer: raw.steer, handbrake: 0 };
   if (car.stunT > 0) inp = { ...inp, throttle: 0 };
 
@@ -265,13 +278,15 @@ function frame() {
     if (used) hud.toast(ITEM_INFO[used].label, 700);
   }
   itemHeld = itemBtn;
-  if (S.auto && items && car.item && race && race.started && Math.random() < dt * 0.6) items.use(car, allCars(), progOf);
+  if (autoNow && items && car.item && race && race.started && Math.random() < dt * 0.6) items.use(car, allCars(), progOf);
+  // the attract race never ends: a few seconds after the flag, another grid
+  if (attract && race && race.state === 'finished') { attractT += dt; if (attractT > 5) { attractT = 0; startRace(); } }
 
   if (!S.frozen) {
     acc += dt;
     let steps = 0;
     while (acc >= STEP && steps < 8) {
-      car.step(STEP, inp, env, S.auto ? AUTO_AIDS : S.stability);
+      car.step(STEP, inp, env, autoNow ? AUTO_AIDS : S.stability);
       if (model.collide) model.collide(car);
       if (bots) {
         bots.step(STEP, env, allCars(), progOf, race ? race.progOf(car) : null, items, holding);
@@ -294,7 +309,7 @@ function frame() {
 
     const off = model.surfaceAt(car.x, car.z);
     stuckT = (car.speed < 1.2 && !holding) ? stuckT + dt : 0;
-    if (S.auto && (stuckT > 2.5 || off.grip < 0.5 && car.speed < 3)) { race ? rescue() : resetCar(false); }
+    if (autoNow && (stuckT > 2.5 || off.grip < 0.5 && car.speed < 3)) { race ? rescue() : resetCar(false); }
   }
 
   const surf = model.surfaceAt(car.x, car.z);
@@ -357,7 +372,8 @@ function frame() {
     padHint: input.usingPad ? '🎮' : '',
   });
 
-  renderer.render(scene, camera);
+  if (screens.current === 'car') screens.renderShowcase(renderer, camera.aspect);
+  else renderer.render(scene, camera);
   input.endFrame();
 }
 
@@ -429,6 +445,7 @@ function handleKeys() {
   if (input.tapped('m')) hud.toast('SOUND ' + (audio.toggle() ? 'ON' : 'OFF'), 900);
   if (input.tapped('u')) { S.unitMph = !S.unitMph; }
   if (input.tapped('escape') || input.tapped('tab')) openMenu();
+  if (S.shorts && input.tapped('z')) S.auto = true;         // shorts stays on autopilot
 }
 
 function reloadSky() {
@@ -438,61 +455,48 @@ function reloadSky() {
   hud.toast(SKY_CYCLE[S.skyIdx].toUpperCase(), 1100);
 }
 
-// --------------------------------------------------------------------- menu
-const menu = document.getElementById('menu');
-function openMenu() { S.running = false; menu.classList.remove('hidden'); }
-function closeMenu() { menu.classList.add('hidden'); S.running = true; last = performance.now() / 1000; audio.start(); }
+// ------------------------------------------------------------------- screens
+const screens = new Screens({
+  input, S, PRESETS, CAR_ORDER, TIERS, TRACKS, TRACK_ORDER, getModel,
+  onGo: () => go(),
+});
 
-function chips(el, list, cur, attr, fmt) {
-  el.innerHTML = list.map(v => `<button class="chip ${v === cur ? 'sel' : ''}" data-${attr}="${v}">${fmt(v)}</button>`).join('');
+function openMenu() {
+  S.paused = true;
+  attract = false;
+  screens.show('mode');
 }
 
-function buildMenu() {
-  const tw = document.getElementById('trackList');
-  const ids = [...TRACK_ORDER, 'city'];
-  tw.innerHTML = ids.map(id => {
-    const d = id === 'city' ? { name: 'THE CITY', blurb: 'free roam · 30 blocks · a street circuit through it' } : TRACKS[id];
-    return `<button class="card ${id === S.track ? 'sel' : ''}" data-track="${id}"><b>${d.name}</b><span>${d.blurb}</span></button>`;
-  }).join('');
-  tw.onclick = e => { const b = e.target.closest('[data-track]'); if (!b) return; S.track = b.dataset.track; buildMenu(); };
-
-  const cw = document.getElementById('carList');
-  cw.innerHTML = Object.keys(TIERS).map(tier =>
-    `<div class="tier"><h3>${TIERS[tier]}</h3><div class="list">` +
-    CAR_ORDER.filter(id => PRESETS[id].tier === tier).map(id => {
-      const p = PRESETS[id];
-      return `<button class="card ${id === S.carId ? 'sel' : ''}" data-car="${id}"><b>${p.label}</b><span>${p.blurb}</span></button>`;
-    }).join('') + '</div></div>').join('');
-  cw.onclick = e => { const b = e.target.closest('[data-car]'); if (!b) return; S.carId = b.dataset.car; buildMenu(); };
-
-  const sky = document.getElementById('skyList');
-  chips(sky, [0, 1, 2, 3], S.skyIdx, 'sky', i => SKY_CYCLE[i].toUpperCase());
-  sky.onclick = e => { const b = e.target.closest('[data-sky]'); if (!b) return; S.skyIdx = +b.dataset.sky; S.skyChosen = true; buildMenu(); };
-
-  const mode = document.getElementById('modeList');
-  chips(mode, ['race', 'cruise'], S.mode, 'mode', v => v.toUpperCase());
-  mode.onclick = e => { const b = e.target.closest('[data-mode]'); if (!b) return; S.mode = b.dataset.mode; buildMenu(); };
-  const bl = document.getElementById('botList');
-  bl.style.display = S.mode === 'race' ? '' : 'none';
-  chips(bl, [3, 5, 7, 11], S.bots, 'bots', v => v + ' BOTS');
-  bl.onclick = e => { const b = e.target.closest('[data-bots]'); if (!b) return; S.bots = +b.dataset.bots; buildMenu(); };
-  const ll = document.getElementById('lapList');
-  ll.style.display = S.mode === 'race' ? '' : 'none';
-  chips(ll, [1, 3, 5], S.laps, 'laps', v => v + (v === 1 ? ' LAP' : ' LAPS'));
-  ll.onclick = e => { const b = e.target.closest('[data-laps]'); if (!b) return; S.laps = +b.dataset.laps; buildMenu(); };
-}
-
-document.getElementById('drive').onclick = () => { loadTrack(S.track); closeMenu(); };
-document.getElementById('shorts').onclick = () => {
-  S.mode = 'race';
-  loadTrack(S.track);
-  S.auto = true; S.hudOn = false; S.vertical = true; S.showLine = false; S.showBoards = false;
-  document.body.classList.add('nohud', 'vertical');
-  world.setAids(false, false);
+// the title screen has a race running behind it
+function startAttract() {
+  attract = true;
+  S.paused = false;
+  const pick = TRACK_ORDER[Math.floor(Math.random() * TRACK_ORDER.length)];
+  const savedCar = S.carId;
+  S.carId = CAR_ORDER[Math.floor(Math.random() * CAR_ORDER.length)];
+  loadTrack(pick, { mode: 'race', bots: 7, laps: 3 });
+  S.carId = savedCar;
+  car.setPreset(S.carId);
   rig.mode = 'tv';
-  closeMenu();
+  document.body.classList.add('nohud');
+  screens.show('title');
+  audio.start();
+}
+
+function go() {
+  attract = false;
+  S.paused = false;
+  S.auto = S.shorts;
+  S.hudOn = !S.shorts;
+  S.vertical = S.shorts;
+  if (S.shorts) { S.showLine = false; S.showBoards = false; }
+  document.body.classList.toggle('nohud', !S.hudOn);
+  document.body.classList.toggle('vertical', S.vertical);
+  loadTrack(S.track);
+  rig.mode = S.shorts ? 'tv' : 'chase';
   resize();
-};
+  audio.start();
+}
 
 function resize() {
   const w = innerWidth, h = innerHeight;
@@ -510,6 +514,7 @@ addEventListener('resize', resize);
 
 // ?t=harbor&c=gt&mode=race&bots=7&laps=3&sky=3&go=1&shorts=1 — bookmarkable
 const q = new URLSearchParams(location.search);
+const DBG_INPUT = (q.has('steer') || q.has('thr')) ? { steer: +(q.get('steer') || 0), throttle: +(q.get('thr') || 0), brake: 0, handbrake: 0 } : null;
 if (q.has('t')) S.track = q.get('t');
 if (q.has('c')) S.carId = q.get('c');
 if (q.has('sky')) { S.skyIdx = +q.get('sky'); S.skyChosen = true; }
@@ -518,22 +523,19 @@ if (q.has('grip')) S.stability = +q.get('grip');
 if (q.has('mode')) S.mode = q.get('mode');
 if (q.has('bots')) S.bots = +q.get('bots');
 if (q.has('laps')) S.laps = +q.get('laps');
-buildMenu();
 resize();
 if (q.has('go') || q.has('shorts')) {
-  if (q.has('shorts')) S.mode = 'race';
-  loadTrack(S.track);
-  if (q.has('shorts')) {
-    S.auto = true; S.hudOn = false; S.vertical = true; S.showLine = false; S.showBoards = false;
-    document.body.classList.add('nohud', 'vertical');
-    world.setAids(false, false);
-    rig.mode = 'tv';
-    resize();
-  }
+  S.shorts = q.has('shorts');
+  if (S.shorts) S.mode = 'race';
+  go();
   if (q.has('cam')) rig.mode = q.get('cam');
   if (q.has('auto')) S.auto = true;
   if (q.has('cd') && race) race.countdown = +q.get('cd');    // short lights for screenshots
-  closeMenu();
+} else if (q.has('screen')) {
+  startAttract();
+  screens.show(q.get('screen'));
+} else {
+  startAttract();
 }
 frame();
-window.CRUISE = { S, car, get model() { return model; }, get race() { return race; }, get bots() { return bots; } };
+window.CRUISE = { S, car, screens, get model() { return model; }, get race() { return race; }, get bots() { return bots; } };
