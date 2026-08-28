@@ -15,6 +15,7 @@ plan to fix it. Everything below is a decision unless it's under **Open**.
 | the freeway | a rectangle at grade with 90° corners | curved, raised, on/off ramps, overpasses, one big interchange |
 | intersections | a disc at each polyline vertex | stop lines, crosswalks, signals, medians, turn lanes |
 | land | 6–12 m plateau steps between districts | gentle slopes; streets climb hills (SF), never terraces |
+| buildings vs the road | walls start where the asphalt stops (a 4.5 m pavement strip, nothing on it) | parking lane, kerb, a wide pavement with trees/lamps/parked cars, then a setback that depends on what the building is |
 | uses | towers, sheds, houses | + mid-rise, shops, strip malls, gas stations, parking lots, dealerships, schools, parks, a stadium |
 | life | lamps, a few walkers | **parked cars everywhere**, traffic lights, street trees, bus stops, fences, driveways, signs |
 
@@ -46,8 +47,18 @@ the geometry and the layout and leaves clean UVs and real surfaces for them.
    midtown, 150–200 m suburbs, 300–400 m industrial.
 3. **A density gradient, not rectangles.** Tower core → mid-rise → low commercial
    → houses → ranchettes on gravel → forest. Bands overlap and blend.
-4. **Buildings face the street.** A continuous street wall downtown; corners get
-   the best building; parking behind. Setbacks grow with distance from the core.
+4. **The road is not the street.** Every road owns a corridor much wider than
+   its asphalt — the *right of way* — and no building may enter it:
+   asphalt + parking lane (2.5 m each side) + kerb + pavement (5–8 m, with
+   trees, lamps, bins, bus stops) + verge. Street 18 → corridor 34 m; avenue 26
+   → 46 m; boulevard 36 → 60 m with palm rows; freeway 32 → 60 m of shoulder,
+   embankment and sound walls. Then a **setback by use** before the wall:
+   towers 15–20 m (a forecourt plaza, planters, a drop-off loop); shops 0 m
+   (they sit at the back of the pavement, awnings over it); apartments 5 m;
+   houses 10–14 m of lawn and driveway; warehouses 20–30 m of yard and fence;
+   a dealership's lot *is* its frontage. Buildings face the street, corners
+   get the best building, parking goes behind — but nothing ever touches the
+   road.
 5. **Arterials carry the commerce.** The boulevard out of town is THE STRIP:
    dealerships, tyre shops, motels, gas stations, drive-thrus, a drive-in, the
    kart track. That's where the billboards and the Oo's motorsport culture live.
@@ -129,8 +140,11 @@ the ring.
   the two ribbons; stop lines, crosswalks, signal poles at avenue+ crossings,
   stop signs at locals. Traffic obeys signals (stop on red).
 - **D. Blocks as first-class** — derive block polygons (faces of the street
-  graph) → each block gets a use from its density band → lots along each edge →
-  a building placed per lot, facing the street. Building kit = ~20 silhouettes
+  graph) → **inset by each road's right-of-way half-width, not its asphalt** →
+  each block gets a use from its density band → lots along each edge → a
+  building placed per lot, facing the street, behind its use's setback. The
+  strip between asphalt and lot line is the pavement system (kerb, parking
+  lane, pavement, trees, lamps) and is built per road, not per district. Building kit = ~20 silhouettes
   (slab, tower-on-podium, stepped, L, courtyard, shopfront row, warehouse,
   bungalow, two-storey, garage-front…) × height × 12-colour palette × facade
   (shopfront / windows / brick / stucco / glass) × roof (flat, plant, parapet,
