@@ -15,8 +15,8 @@ export class Arrival {
     const d = drop;
     // the ship's path: far out to sea, over the harbour, to a hover above the square
     this.path = [
-      new THREE.Vector3(d.x + 900, 260, d.z - 3200),
-      new THREE.Vector3(d.x + 300, 180, d.z - 1500),
+      new THREE.Vector3(d.x + 700, 220, d.z - 1700),
+      new THREE.Vector3(d.x + 260, 150, d.z - 900),
       new THREE.Vector3(d.x + 40, 110, d.z - 400),
       new THREE.Vector3(d.x, 48, d.z),
       new THREE.Vector3(d.x, 48, d.z),
@@ -28,6 +28,7 @@ export class Arrival {
 
   buildShip() {
     const g = new THREE.Group();
+    g.scale.setScalar(2.2);                                      // a ship, not a frisbee
     const hull = new THREE.Mesh(new THREE.SphereGeometry(9, 24, 12), new THREE.MeshLambertMaterial({ color: 0xc9ccd4 }));
     hull.scale.set(1, 0.32, 1); g.add(hull);
     const dome = new THREE.Mesh(new THREE.SphereGeometry(3.6, 18, 10), new THREE.MeshLambertMaterial({ color: 0x8fd3ff, transparent: true, opacity: 0.8 }));
