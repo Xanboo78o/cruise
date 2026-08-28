@@ -71,7 +71,7 @@ let freeRoam = null, worldRace = null, drone = null, mapScreen = null;   // the 
 let arrival = null;                                                       // the saucer, once
 let population = null, peds = null, traffic = null;                       // the Oo, on foot and in cars
 let challenges = null;                                                    // traps, drift zones, jumps, figurines, photos
-let lightsNight = false;
+let lightsNight = false, lastDistrict = null, gateHold = 0;
 const progress = new Progress();                                           // medals, cash, cars, stickers
 const cloud = new Cloud();                                                 // …and where they go when you sign in
 let cloudSaveT = null;
@@ -527,6 +527,20 @@ function frame() {
     if (!worldRace && skyMesh && lights) { const s = skyForHour(S.hour); tintSky(skyMesh, lights, scene, s); if (s.night !== lightsNight) { lightsNight = s.night; setHeadlights(carMesh, s.night); } }
     const everyone = traffic && !worldRace ? [...allCars(), ...traffic.cars] : allCars();
     if (peds) peds.update(dt, camera.position.x, camera.position.z, everyone, S.hour, worldRace ? worldRace.rc.gate : null);
+    // where you are, and the gates you can roll into
+    if (!worldRace) {
+      const d = freeRoam.T.districtAt(car.x, car.z);
+      const name = d ? d.name : null;
+      if (name !== lastDistrict) { lastDistrict = name; if (name) hud.toast(name, 1800); }
+      let nearGate = null;
+      for (const rc of RACES) { if (Math.hypot(car.x - rc.gate[0], car.z - rc.gate[1]) < 16) { nearGate = rc; break; } }
+      if (nearGate) {
+        const holding = input.keys.has('enter') || !!(input.pad && input.pad.buttons[0] && input.pad.buttons[0].pressed);
+        gateHold = holding ? gateHold + dt : 0;
+        if (gateHold === 0 && Math.random() < dt * 2) hud.toast(nearGate.name + ' · HOLD ENTER / A', 900);
+        if (gateHold > 0.6) { gateHold = 0; startWorldRace(nearGate); }
+      } else gateHold = 0;
+    }
     if (challenges && !worldRace) {
       const ev = challenges.update(dt, car, camera);
       if (ev) {
