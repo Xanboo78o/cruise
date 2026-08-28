@@ -2,7 +2,8 @@
 // plus four named wheel nodes. We load once, clone per car, scale the body to
 // the preset, and re-hang the wheels at the physics contact patches so each one
 // rides its own suspension. Until the GLB arrives there's a plain box so the
-// game never waits on the network.
+// game never waits on the network. Arcade state (nitro, shield, mega, zapped)
+// gets its own little effects here too.
 
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -30,16 +31,17 @@ const flat = (c, o = {}) => new THREE.MeshLambertMaterial({ color: c, ...o });
 function applyTint(root, tint, opacity) {
   root.traverse(n => {
     if (!n.isMesh) return;
-    n.material = n.material.clone();
     if (tint != null) { n.material.color.setHex(tint); n.material.emissive?.setHex(tint); if (n.material.emissive) n.material.emissiveIntensity = 0.25; }
     if (opacity != null) { n.material.transparent = true; n.material.opacity = opacity; n.material.depthWrite = opacity > 0.9; }
   });
 }
 
-export function buildCar(preset, tint) {
+// opts: { tint, lights (headlight spots — player only, they're expensive) }
+export function buildCar(preset, opts = {}) {
   const g = new THREE.Group();
   const m = preset.model;
   const S = m.scale, sx = S * (m.stretchX ?? 1), sz = S * (m.stretchZ ?? 1);
+  const tint = opts.tint ?? null;
 
   // placeholder until the GLB lands
   const box = new THREE.Mesh(new THREE.BoxGeometry(preset.track, 0.9, preset.lf + preset.lr), flat(0x444a55));
@@ -55,23 +57,51 @@ export function buildCar(preset, tint) {
     wheels.push(w);
   }
 
-  // headlight beams (night only) and brake lights
+  const nose = preset.lf + 0.3, tail = -preset.lr - 0.3;
   const beams = [];
   const lights = [];
-  const nose = preset.lf + 0.3, tail = -preset.lr - 0.3;
   for (const s of [-1, 1]) {
-    const sl = new THREE.SpotLight(0xffe8c0, 0, 70, 0.52, 0.55, 1.1);
-    sl.position.set(s * preset.track * 0.36, 0.7, nose);
-    const tgt = new THREE.Object3D();
-    tgt.position.set(s * preset.track * 0.36, -1.6, nose + 26);
-    g.add(sl, tgt);
-    sl.target = tgt;
-    beams.push(sl);
+    if (opts.lights) {
+      const sl = new THREE.SpotLight(0xffe8c0, 0, 70, 0.52, 0.55, 1.1);
+      sl.position.set(s * preset.track * 0.36, 0.7, nose);
+      const tgt = new THREE.Object3D();
+      tgt.position.set(s * preset.track * 0.36, -1.6, nose + 26);
+      g.add(sl, tgt);
+      sl.target = tgt;
+      beams.push(sl);
+    }
     const t = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.09, 0.05), new THREE.MeshBasicMaterial({ color: 0x5a1512 }));
     t.position.set(s * preset.track * 0.36, 0.72, tail);
     g.add(t);
     lights.push(t);
   }
+
+  // --- arcade effects
+  // nitro: two flames out the back
+  const flameG = new THREE.ConeGeometry(0.28, 1.6, 7);
+  flameG.rotateX(Math.PI / 2);
+  const flames = [];
+  for (const s of [-1, 1]) {
+    const f = new THREE.Mesh(flameG, new THREE.MeshBasicMaterial({ color: 0x66c8ff, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false }));
+    f.position.set(s * preset.track * 0.28, 0.5, tail - 0.9);
+    f.visible = false;
+    g.add(f);
+    flames.push(f);
+  }
+  // shield: a bubble
+  const bubble = new THREE.Mesh(
+    new THREE.SphereGeometry(Math.max(preset.track, (preset.lf + preset.lr) * 0.62) * 1.05, 18, 12),
+    new THREE.MeshBasicMaterial({ color: 0x6fe3a0, transparent: true, opacity: 0.22, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide })
+  );
+  bubble.position.y = 0.9;
+  bubble.visible = false;
+  g.add(bubble);
+  // zapped: a ring of sparks over the roof
+  const zapRing = new THREE.Mesh(new THREE.TorusGeometry(1.1, 0.07, 6, 18), new THREE.MeshBasicMaterial({ color: 0xffe066 }));
+  zapRing.rotation.x = Math.PI / 2;
+  zapRing.position.y = 2.2;
+  zapRing.visible = false;
+  g.add(zapRing);
 
   const shadow = new THREE.Mesh(
     new THREE.PlaneGeometry(preset.track * 1.35, m.len * 1.08),
@@ -81,7 +111,7 @@ export function buildCar(preset, tint) {
   shadow.renderOrder = 1;
   g.add(shadow);
 
-  g.userData = { wheels, lights, beams, shadow, preset, tint, opacity: null, ready: false };
+  g.userData = { wheels, lights, beams, flames, bubble, zapRing, shadow, preset, tint, opacity: null, ready: false, megaK: 1 };
 
   loadModel(m.file).then(scene => {
     const root = scene.clone(true);
@@ -101,17 +131,16 @@ export function buildCar(preset, tint) {
       const phys = wheels[idx];
       node.position.set(0, 0, 0);
       node.rotation.set(0, 0, 0);
-      // wheel scale: the physics radius, whatever the model's is
-      const k = phys.userData.r / m.wheelR;
+      const k = phys.userData.r / m.wheelR;                    // physics radius, whatever the model's is
       node.scale.set(k, k, k);
-      node.traverse(n => { if (n.isMesh) { n.castShadow = true; } });
+      node.traverse(n => { if (n.isMesh) n.castShadow = true; });
       phys.add(node);
       phys.userData.spinner = node;
     }
     // body: uniform scale, stretched a little sideways to cover the track, and
     // lifted so its wheel arches sit around wheels at ride height
     root.scale.set(sx, S, sz);
-    const arch = m.wheelR * S;                                  // where the model expects its wheel centre
+    const arch = m.wheelR * S;
     root.position.y = wheels[0].userData.r - arch;
     root.traverse(n => { if (n.isMesh) { n.castShadow = true; n.receiveShadow = false; } });
     if (tint != null || g.userData.opacity != null) applyTint(root, tint, g.userData.opacity);
@@ -127,10 +156,14 @@ export function buildCar(preset, tint) {
 
 // The body is drawn at the sprung-mass position and attitude; each wheel is
 // dropped to where the physics says the ground is.
-export function updateCarMesh(mesh, car, dt, braking) {
+export function updateCarMesh(mesh, car, dt, braking, time = 0) {
   const u = mesh.userData;
   mesh.position.set(car.x, car.y, car.z);
   mesh.rotation.set(-car.pitch, car.yaw, car.roll, 'YXZ');
+  // MEGA: the whole thing grows, wheels included
+  const wantK = car.megaT > 0 ? 1.55 : 1;
+  u.megaK += (wantK - u.megaK) * Math.min(1, dt * 6);
+  mesh.scale.setScalar(u.megaK);
   for (let i = 0; i < 4; i++) {
     const pw = car.wheels[i], w = u.wheels[i];
     const localY = w.userData.r - Math.max(-car.p.susp.travel * 1.6, Math.min(car.p.susp.travel * 1.05, pw.disp));
@@ -140,10 +173,29 @@ export function updateCarMesh(mesh, car, dt, braking) {
   }
   let gy = 0;
   for (const pw of car.wheels) gy += pw.ground;
-  u.shadow.position.y = (gy / 4 - car.y) + 0.02;
+  u.shadow.position.y = (gy / 4 - car.y) / u.megaK + 0.02;
   u.shadow.rotation.set(-Math.PI / 2 + car.pitch, 0, -car.roll);
   const lit = braking ? 0xff3b2f : 0x5a1512;
   for (const l of u.lights) l.material.color.setHex(lit);
+
+  // effects
+  const boosting = car.boostT > 0 && car.speed > 2;
+  for (const f of u.flames) {
+    f.visible = boosting;
+    if (boosting) {
+      const fl = 0.8 + Math.sin(time * 60 + f.position.x * 9) * 0.25;
+      f.scale.set(fl, fl, 1.1 + Math.min(car.boostT, 1.5) * 0.9 + Math.random() * 0.3);
+      f.material.opacity = 0.55 + Math.random() * 0.35;
+    }
+  }
+  u.bubble.visible = car.shieldT > 0;
+  if (u.bubble.visible) {
+    const pulse = 1 + Math.sin(time * 9) * 0.04;
+    u.bubble.scale.setScalar(pulse);
+    u.bubble.material.opacity = car.shieldT < 1 ? 0.22 * (0.4 + 0.6 * Math.abs(Math.sin(time * 18))) : 0.22;
+  }
+  u.zapRing.visible = car.stunT > 0;
+  if (u.zapRing.visible) { u.zapRing.rotation.z = time * 12; u.zapRing.material.color.setHex(Math.sin(time * 40) > 0 ? 0xffe066 : 0xffffff); }
 }
 
 export function setHeadlights(mesh, on) {
@@ -154,6 +206,7 @@ export function setCarOpacity(mesh, o) {
   mesh.userData.opacity = o;
   mesh.traverse(n => {
     if (!n.material || n === mesh.userData.shadow) return;
+    if (n === mesh.userData.bubble || mesh.userData.flames.includes(n)) return;
     const mats = Array.isArray(n.material) ? n.material : [n.material];
     for (const m of mats) { m.transparent = true; m.opacity = o; m.depthWrite = o > 0.9; }
   });

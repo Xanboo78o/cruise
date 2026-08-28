@@ -18,7 +18,7 @@ function arc(cx, cz, r, a0, a1, steps = 4) {
 }
 
 // --- the street grid. [x1, z1, x2, z2, width]
-const AV = 19, ST = 19, BLVD = 27;
+const AV = 34, ST = 32, BLVD = 46;      // arcade wide: four lanes each way and change
 const ROADS = [
   // north-south avenues
   [-240, -260, -240, 220, AV], [-120, -260, -120, 220, AV], [0, -260, 0, 220, AV],
@@ -34,7 +34,7 @@ const ROADS = [
   // skidpad link
   [-372, -140, -240, -140, ST],
 ];
-const PAD = { x: -372, z: -140, r: 58 };        // the donut pad
+const PAD = { x: -380, z: -140, r: 78 };        // the donut pad
 
 // --- buildings: [x, z, w, d, h, tone]  (tone 0 concrete, 1 brick, 2 glass, 3 shed)
 const BUILDINGS = [
@@ -72,10 +72,10 @@ const CIRCUIT = {
   name: 'THE CITY',
   blurb: 'free roam · street circuit · skidpad out west',
   closed: true,
-  width: 15,
+  width: 30,
   startIndex: 0.05,
   sky: 'sunset',
-  profile: { vMax: 44, aLat: 12.0 },
+  profile: { vMax: 62, aLat: 15 },
   pts: [
     p(0, -170), p(0, -100), p(0, 24),
     ...arc(16, 24, 16, 180, 90).slice(1),         // right onto the z=40 street
@@ -106,6 +106,18 @@ function distToSeg(px, pz, x1, z1, x2, z2) {
   t = Math.max(0, Math.min(1, t));
   return Math.hypot(px - (x1 + t * dx), pz - (z1 + t * dz));
 }
+
+// wider roads eat into the blocks: drop any building whose footprint now
+// touches a road corridor rather than leave half a tower in the outside lane
+const KEEP = BUILDINGS.filter(([bx, bz, bw, bd]) => {
+  const half = Math.hypot(bw, bd) / 2;
+  for (const [x1, z1, x2, z2, rw] of ROADS) {
+    if (distToSeg(bx, bz, x1, z1, x2, z2) < rw / 2 + half * 0.72 + 2) return false;
+  }
+  return true;
+});
+BUILDINGS.length = 0;
+BUILDINGS.push(...KEEP);
 
 class CityModel extends TrackModel {
   constructor() {

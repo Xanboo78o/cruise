@@ -11,6 +11,14 @@
 
 const TAU = Math.PI * 2;
 
+// ARCADE — the same tyre model, just more of everything. Grip up so the launch
+// is traction-limited at something stupid, torque up to use it, drag up so the
+// top end doesn't leave the map, load sensitivity down so a lifted inside wheel
+// isn't a spin. The cars keep their characters relative to each other.
+const ARC = { torque: 3.4, grip: 1.55, loadSens: 0.6, brakeG: 1.5, cd: 1.3, steerFalloff: 0.85, cgH: 0.55 };
+// cgH: with 2 g of grip and a real CG height the inside wheels lift at 1.5 g and
+// the car two-wheels through every fast corner. Arcade cars sit low.
+
 // model geometry at scale 1, straight out of the GLB node positions
 const MODELS = {
   'hatchback-sports': { front: 0.81, back: 0.81, wheelR: 0.30, len: 2.85 },
@@ -29,6 +37,15 @@ const MODELS = {
 function build(o) {
   const mdl = MODELS[o.model.file];
   const S = o.model.scale;
+  o = { ...o,
+    torque: o.torque * ARC.torque, grip: o.grip.map(g => g * ARC.grip),
+    loadSens: (o.loadSens ?? 0.12) * ARC.loadSens, brakeG: (o.brakeG ?? 1.25) * ARC.brakeG,
+    cd: o.cd * ARC.cd, steerFalloff: (o.steerFalloff ?? 0.56) * ARC.steerFalloff,
+    // real downforce, biased to the rear: a drift car is an oversteer car, and an
+    // oversteer car has a critical speed. Rear wing moves that past the top end.
+    lift: Math.max(1.2, (o.lift ?? 0) * 2), aeroSplit: o.aeroSplit ?? 0.36,
+    cgH: o.cgH * ARC.cgH,
+  };
   const lf = mdl.front * S * (o.model.stretchZ ?? 1), lr = mdl.back * S * (o.model.stretchZ ?? 1);
   const tyreR = mdl.wheelR * S * (o.model.wheelScale ?? 1);
   const mass = o.mass;
@@ -104,7 +121,7 @@ export const PRESETS = {
     model: { file: 'race', scale: 1.75, stretchX: 1.0 },
     mass: 720, track: 1.62, cgH: 0.30,
     freq: [2.8, 2.9], damping: 0.55, arb: [0.7, 0.5], travel: 0.06,
-    grip: [1.75, 1.72], loadSens: 0.10, cd: 0.9, area: 1.4, lift: 2.6, aeroSplit: 0.42,
+    grip: [1.75, 1.72], loadSens: 0.10, cd: 0.5, area: 1.4, lift: 2.6, aeroSplit: 0.42,
     torque: 300, idle: 2500, redline: 12000, engineBrake: 60,
     gears: [2.9, 2.2, 1.8, 1.5, 1.3, 1.15, 1.02], finalDrive: 5.0,
     drive: 'rwd', diffLock: 0.6, brakeG: 2.2, brakeBias: 0.58, maxSteer: 0.40, steerFalloff: 0.7,
@@ -126,7 +143,7 @@ export const PRESETS = {
     model: { file: 'sedan', scale: 1.8, stretchX: 1.12 },
     mass: 1720, track: 1.60, cgH: 0.54,
     freq: [1.3, 1.25], damping: 0.28, arb: [0.4, 0.15], travel: 0.18,
-    grip: [1.10, 1.07], loadSens: 0.16, cd: 0.42, area: 2.2,
+    grip: [1.10, 1.14], loadSens: 0.16, cd: 0.42, area: 2.2,
     torque: 680, redline: 6200, engineBrake: 55, gears: [2.9, 1.9, 1.4, 1.0], finalDrive: 3.7,
     drive: 'rwd', diffLock: 0.3, brakeG: 0.95, brakeBias: 0.66, maxSteer: 0.52, steerFalloff: 0.5,
   }),

@@ -145,10 +145,10 @@ export function solveLine(center, halfWidth, closed, margin = 1.6, iters = 900) 
 // Forward/backward passes give the fastest speed you could carry everywhere,
 // and the moment the two disagree is a braking point.
 export function speedProfile(line, closed, opts = {}) {
-  const aLat = opts.aLat ?? 10.5;        // m/s^2 of cornering grip — a real road car, not a slick
-  const aBrake = opts.aBrake ?? 10.5;
-  const aAccel = opts.aAccel ?? 4.6;
-  const vMax = opts.vMax ?? 62;
+  const aLat = opts.aLat ?? 16;          // m/s^2 of cornering grip — arcade rubber
+  const aBrake = opts.aBrake ?? 16;
+  const aAccel = opts.aAccel ?? 9;
+  const vMax = opts.vMax ?? 78;
   const n = line.length;
   const v = new Float32Array(n);
   const ks = new Float32Array(n);            // 5-tap smoothing: a driver doesn't
@@ -206,7 +206,11 @@ export class TrackModel {
     this.def = def;
     this.closed = def.closed !== false;
     this.halfWidth = def.width / 2;
-    this.samples = resample(def.pts, this.closed, 2);
+    // layouts are drawn at a comfortable size and scaled up here: arcade speeds
+    // want long straights and big radii, and the width has to grow with them
+    const sc = def.scale ?? 1, ysc = def.yScale ?? 1;
+    const pts = def.pts.map(q => ({ x: q.x * sc, z: q.z * sc, y: (q.y || 0) * ysc }));
+    this.samples = resample(pts, this.closed, 2);
     this.length = differentiate(this.samples, this.closed);
     this.line = solveLine(this.samples, this.halfWidth, this.closed, def.lineMargin ?? 1.8);
     this.profile = speedProfile(this.line, this.closed, def.profile);

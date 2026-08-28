@@ -77,7 +77,22 @@ export class Car {
     this.airborne = false; this.airTime = 0; this.bestAir = 0; this.landing = 0;
     this.odo = 0; this.spun = false;
     this.slipR = 0; this.slipF = 0;
+    // arcade state — all timers in seconds, all read by the physics
+    this.boostT = 0; this.stunT = 0; this.shieldT = 0; this.megaT = 0;
+    this.driftCharge = 0; this.driftLevel = 0; this.item = null; this.itemCooldown = 0;
+    this.bumpT = 0;
     for (const w of this.wheels) w.reset();
+  }
+
+  get mega() { return this.megaT > 0; }
+  get massNow() { return this.p.mass * (this.mega ? 2.6 : 1); }
+
+  // after an external impulse (a bump) the body-frame velocities must be
+  // re-derived from world velocity or the tyres argue with the world
+  syncBody() {
+    const s = Math.sin(this.yaw), c = Math.cos(this.yaw);
+    this.u = this.vx * s + this.vz * c;
+    this.v = this.vx * c - this.vz * s;
   }
 
   get speed() { return Math.hypot(this.vx, this.vz); }
@@ -111,7 +126,9 @@ export class Car {
 
   updateSteer(dt, inp, aids) {
     const p = this.p, speed = this.speed;
-    const ease = 1 - (p.steerFalloff ?? 0.56) * Math.min(speed / 42, 1);
+    // lock falls away with speed — and keeps falling past 42 m/s, because at
+    // 130 mph half-lock is a spin, not a steering input
+    const ease = 1 - (p.steerFalloff ?? 0.56) * Math.min(speed / 42, 1.6);
     let target = inp.steer * p.maxSteer * ease;
     if (aids > 0 && Math.abs(this.slipR) > 0.14 && speed > 4) {
       const need = -Math.sign(this.slipR) * Math.min(Math.abs(this.slipR), 0.55);
@@ -126,6 +143,12 @@ export class Car {
   integrate(h, inp, env, aids) {
     const p = this.p, T = env.terrain;
     const sy = Math.sin(this.yaw), cy = Math.cos(this.yaw);
+
+    // aero: downforce is a force on the body — the springs carry it down to
+    // the tyres, which is what makes it show up as grip
+    const spd0 = Math.hypot(this.u, this.v);
+    const qA = 0.5 * 1.225 * p.aero.cd * p.aero.area;
+    const df = qA * spd0 * spd0 * p.aero.lift;
 
     // ---------------------------------------------------------- suspension
     let Fsum = 0, Mpitch = 0, Mroll = 0, contacts = 0;
@@ -239,9 +262,8 @@ export class Car {
       Fx -= roll * Math.max(-1, Math.min(1, this.u * 0.5));
       Fy -= 2.4 * this.v;                                // sideways scrub damping
     }
-    // downforce, split front/rear, straight onto the springs
-    const df = q * speed * speed * p.aero.lift;
-    if (df > 0) for (const w of this.wheels) w.load += df * (w.front ? p.aero.split : 1 - p.aero.split) * 0.5;
+    // downforce splits front/rear as a pitch moment on the body
+    Mpitch += -df * p.aero.split * p.lf + df * (1 - p.aero.split) * p.lr;
 
     const FxT = Fx, FyT = Fy;                         // what the ground actually pushes with
 
@@ -258,12 +280,14 @@ export class Car {
     // ---------------------------------------------------------- integrate
     // artificial yaw damping = the driver aids. Scaled by inertia so a truck
     // and a kei car get the same time constant: ~1 s at full aids, none raw.
-    let Mtot = Mz - this.r * this.izz * (0.05 + 0.9 * aids);
+    // ...and the damper grows with speed, since the tyres' own damping shrinks with it
+    let Mtot = Mz - this.r * this.izz * (0.05 + 0.9 * aids) * (1 + speed / 35);
     if (this.airborne) Mtot = -this.r * this.izz * 0.05;
     if (Math.abs(this.r) > 2.2) Mtot -= this.r * (Math.abs(this.r) - 2.2) * 1100;
 
-    const du = Fx / p.mass + this.r * this.v;
-    const dv = Fy / p.mass - this.r * this.u;
+    const mNow = this.massNow;
+    const du = Fx / mNow + this.r * this.v;
+    const dv = Fy / mNow - this.r * this.u;
     this.u += du * h;
     this.v += dv * h;
     this.r = Math.max(-3.4, Math.min(3.4, this.r + (Mtot / this.izz) * h));
@@ -283,7 +307,7 @@ export class Car {
       this.pitchV *= 1 - Math.min(h * 0.8, 1);
       this.rollV *= 1 - Math.min(h * 0.8, 1);
     } else {
-      this.vy += (Fsum / p.mass - G) * h;
+      this.vy += ((Fsum - df) / mNow - G) * h;
       this.vy = Math.max(-24, Math.min(24, this.vy));
       this.y += this.vy * h;
     }
@@ -325,16 +349,18 @@ export class Car {
     this.rpm = Math.max(p.idle, Math.min(p.redline * 1.03, Math.abs(wAvg * ratio) * 60 / (2 * Math.PI)));
 
     let thr = inp.throttle;
+    if (this.stunT > 0) thr = 0;                                  // zapped: no power
     // traction control: back off when a driven wheel is spinning up
     if (aids > 0) {
       let worst = 0;
       for (const i of driven) worst = Math.max(worst, this.wheels[i].kappa);
-      if (worst > 0.22) thr *= Math.max(0, 1 - (worst - 0.22) * 3.4 * aids);
+      if (worst > 0.10) thr *= Math.max(0, 1 - (worst - 0.10) * 8 * aids);
     }
     const rev = this.rpm / p.redline;
     const curve = Math.max(0, p.torque * (0.62 + 0.66 * rev - 0.32 * rev * rev));
     let engine = curve * thr;
-    if (this.rpm > p.redline) engine *= 0.15;                     // limiter
+    if (this.boostT > 0) engine *= 1.9;                           // nitro / drift turbo
+    if (this.rpm > p.redline) engine *= this.boostT > 0 ? 0.6 : 0.15;   // limiter (boost pushes through it)
     // overrun braking — with engine drag control when the aids are on, so an
     // unloaded inside wheel can't be locked by the engine alone
     let drag = p.engineBrake * (1 - thr) * rev;
@@ -399,6 +425,22 @@ export class Car {
   finish(dt, inp) {
     this.updateGearbox(inp);
     this.odo += Math.abs(this.u) * dt;
+    // timers
+    this.boostT = Math.max(0, this.boostT - dt);
+    this.stunT = Math.max(0, this.stunT - dt);
+    this.shieldT = Math.max(0, this.shieldT - dt);
+    this.megaT = Math.max(0, this.megaT - dt);
+    this.itemCooldown = Math.max(0, this.itemCooldown - dt);
+    this.bumpT = Math.max(0, this.bumpT - dt);
+    // drift turbo: hold a slide, get a shove when it straightens. Three levels.
+    const sliding = Math.abs(this.driftAngle) > 16 && this.speed > 7 && !this.airborne && !this.spun;
+    if (sliding) {
+      this.driftCharge += dt;
+      this.driftLevel = this.driftCharge > 2.4 ? 3 : this.driftCharge > 1.3 ? 2 : this.driftCharge > 0.5 ? 1 : 0;
+    } else if (this.driftCharge > 0) {
+      if (this.driftLevel > 0) this.boostT = Math.max(this.boostT, 0.35 + 0.45 * this.driftLevel);
+      this.driftCharge = 0; this.driftLevel = 0;
+    }
     const w = this.wheels;
     this.frontSlide = (w[0].slide + w[1].slide) * 0.5;
     this.rearSlide = (w[2].slide + w[3].slide) * 0.5;

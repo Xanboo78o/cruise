@@ -24,9 +24,9 @@ const p = (x, z, y = 0) => ({ x, z, y });
 const harbor = {
   id: 'harbor',
   name: 'HARBOR LOOP',
-  blurb: '1.2 km · flowing · the sweeper at T4 is the one',
+  blurb: '2 km · flowing · the sweeper at T4 is the one',
   closed: true,
-  width: 12,
+  width: 30, scale: 1.7, yScale: 1.4,
   startIndex: 0.06,
   sky: 'sunset',
   pts: [
@@ -58,13 +58,13 @@ const harbor = {
 const canyon = {
   id: 'canyon',
   name: 'CANYON PASS',
-  blurb: '2.0 km · point to point · 110 m down, six hairpins',
+  blurb: '3.3 km · point to point · 110 m down, six hairpins',
   closed: false,
-  width: 11,
+  width: 24, scale: 1.5, yScale: 1.0,
   startIndex: 0,
   sky: 'dawn',
   rough: 1.0,                              // it's a mountain, let it be one
-  profile: { vMax: 46, aLat: 11.4 },      // mountain road, not a runway
+  profile: { vMax: 62, aLat: 16 },        // mountain road, not a runway
   pts: [
     p(-190, 258, 112), p(-120, 252, 108), p(-50, 262, 102), p(20, 252, 96), p(84, 250, 92),
     ...arc(100, 228, 22, 90, -90, 91, 87).slice(1),          // hairpin 1 (east)
@@ -90,12 +90,12 @@ const canyon = {
 const seawall = {
   id: 'seawall',
   name: 'SEAWALL',
-  blurb: '600 m · wide and slow · the warm-up',
+  blurb: '1 km · huge and fast · the warm-up',
   closed: true,
-  width: 15,
+  width: 34, scale: 1.8,
   startIndex: 0.08,
   sky: 'noon',
-  profile: { vMax: 40, aLat: 12.0 },
+  profile: { vMax: 66, aLat: 16 },
   pts: [
     p(-90, -20, 0), p(-90, 14, 0), p(-90, 50, 0),
     ...arc(-50, 50, 40, 180, 90).slice(1),            // -> (-50, 90)

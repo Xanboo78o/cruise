@@ -5,10 +5,13 @@ counter. You pick a car, pick a road, and go and find the limit — the racing
 line, the brake points, the exact moment the rear steps out — for as long as you
 feel like it.
 
-Three reasons it exists:
-1. Practising lines and brake points without a race attached to it.
-2. Learning to hold a slide on a car that rewards it.
-3. Something nice to have running behind a YouTube Short.
+Two ways to play it:
+- **RACE** — a grid of bots (3 to 11), lights out, item boxes, three laps, a
+  results sheet. Contact is real but nothing breaks. Drift to charge a turbo.
+- **CRUISE** — the road to yourself, with the racing line, brake boards, your
+  ghost and a pace car. For learning lines and holding slides.
+
+And **SHORTS MODE**: a race on autopilot, 9:16, no HUD. Hit record, walk away.
 
 ## Run it
 
@@ -19,10 +22,28 @@ python3 -m http.server 8137
 Then open <http://localhost:8137>. No build step, no dependencies — three.js is
 vendored in `js/vendor/`.
 
-You can skip the menu with a URL: `?t=harbor&c=gt&go=1` — `t` is the track
-(`harbor`, `canyon`, `seawall`, `city`), `c` the car (`silhouette`, `kei`, `gt`),
-`sky` 0-3, `cam` (`chase`, `low`, `hood`, `drone`, `tv`, `orbit`), plus `go`,
-`auto` and `shorts` as flags.
+You can skip the menu with a URL: `?t=harbor&c=gt&mode=race&bots=7&laps=3&go=1`
+— `t` is the track (`harbor`, `canyon`, `seawall`, `city`), `c` the car id from
+`js/presets.js`, `mode` race/cruise, `sky` 0-3, `cam` (`chase`, `low`, `hood`,
+`drone`, `tv`, `orbit`), plus `go`, `auto` and `shorts` as flags.
+
+## The arcade layer
+
+Same tyre model underneath, more of everything on top: grip ×1.55, torque ×3.4,
+a real rear wing on every car so a drift car stays a drift car past 120 mph, and
+a low CG so the inside wheels don't lift at 1.5 g. HYPER does 0-60 in 1.25 s,
+the GT in 1.5, HACHI in 1.9. Tracks are 1.7× bigger and 24-34 m wide.
+
+**Items** (E / Shift / pad X): NITRO · SLICK (a puddle behind you, 22% grip) ·
+ZAP (stops the car ahead for a moment and spins it) · SHIELD · MEGA (you are
+2.6 t and half again as big for 8 s — bump people). Leaders get bullied, the back
+gets rockets.
+
+**Drift turbo**: hold a slide past 16° — the SLIP bar fills through three
+colours — straighten up and it shoves you. Everyone gets it, bots too.
+
+**Bots** drive the same physics through the same autopilot, each with its own
+pace, its own lane, elbows, mild rubber-band, and an itchy item finger.
 
 ## Controls
 
@@ -39,7 +60,7 @@ You can skip the menu with a URL: `?t=harbor&c=gt&go=1` — `t` is the track
 | `,` `.` | grip assist, 0-100% |
 | Z | autopilot |
 | F | freeze and orbit (photo mode) |
-| R / T | back on track / back to the start |
+| R / T | back on track (in a race: rescue with a 1.5 s shield) / restart |
 | X | wipe skid marks |
 | N | time of day |
 | U / M | mph-kmh / sound |
@@ -144,7 +165,10 @@ js/track.js    spline, racing line solver, speed profile, surface lookup
 js/tracks.js   the hand-drawn layouts (every corner is a radius I picked)
 js/city.js     the free-roam city and its street circuit
 js/world.js    terrain, road, kerbs, props, the practice overlays
-js/driver.js   the autopilot — pure pursuit + a brake-distance solver
+js/driver.js   the autopilot — pure pursuit + a friction-circle brake planner
+js/bots.js     the grid: bots on the autopilot with lanes, elbows, items
+js/race.js     countdown, laps, standings, car-to-car contact
+js/items.js    boxes, five items, puddles
 js/carmesh.js  Kenney GLB bodies, wheels re-hung on the physics
 js/fx.js       skid marks and tyre smoke
 js/camera.js   the camera rigs

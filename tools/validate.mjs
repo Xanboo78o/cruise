@@ -23,7 +23,7 @@ for (const id of TRACK_ORDER) {
   for (let i = 0; i < n; i += step) {
     for (let j = i + 12; j < n; j += step) {
       const sep = def.closed ? Math.min(j - i, n - (j - i)) : j - i;
-      if (sep < 12) continue;
+      if (sep < Math.max(12, Math.round(def.width * 1.6))) continue;   // inside of one wide hairpin is not another leg
       if (!def.closed && (i + step >= n || j + step >= n)) continue;   // no wrap on point-to-point
       const a = s[i], b = s[(i + step) % n], c = s[j], d = s[(j + step) % n];
       if (segHit(a, b, c, d)) { hits++; if (hits < 8) hitAt.push(`${Math.round(a.s)}m x ${Math.round(c.s)}m`); }

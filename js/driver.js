@@ -5,7 +5,7 @@
 
 export const AUTO_AIDS = 1.0;      // the robot gets ABS, TC and the full yaw hand
 
-export function autoDrive(car, model, pace = 0.85, out = {}) {
+export function autoDrive(car, model, pace = 0.85, out = {}, lane = 0) {
   const n = model.line.length;
   const spacing = model.length / n;
   const nr = model.nearest(car.x, car.z);
@@ -14,7 +14,7 @@ export function autoDrive(car, model, pace = 0.85, out = {}) {
   // --- how far off the line are we? A long way off means recover first.
   const li = nr.i;
   const lp = model.line[li];
-  const off = (car.x - lp.x) * lp.nx + (car.z - lp.z) * lp.nz;
+  const off = (car.x - lp.x) * lp.nx + (car.z - lp.z) * lp.nz - lane;
   const lost = Math.abs(off) > model.halfWidth * 1.6;
 
   // --- pure pursuit. Off the line, aim CLOSER, not further: a distant target
@@ -24,7 +24,7 @@ export function autoDrive(car, model, pace = 0.85, out = {}) {
   if (lost) look = Math.max(5, Math.min(look, Math.abs(off) * 0.7));
   const ai = (li + Math.max(1, Math.round(look / spacing))) % n;
   const t = model.line[ai];
-  const dx = t.x - car.x, dz = t.z - car.z;
+  const dx = t.x + t.nx * lane - car.x, dz = t.z + t.nz * lane - car.z;
   const cy = Math.cos(car.yaw), sy = Math.sin(car.yaw);
   const right = dx * cy - dz * sy, fwd = dx * sy + dz * cy;
   const dist = Math.max(2, Math.hypot(dx, dz));
@@ -46,7 +46,7 @@ export function autoDrive(car, model, pace = 0.85, out = {}) {
     // term through rate-limited steering over-corrects and tank-slaps on exit.
     const ang = car.driftAngle;
     if (Math.abs(ang) > 10 && speed > 6) {
-      const counter = Math.sign(ang) * Math.min(Math.abs(ang) * Math.PI / 180, 0.5) * 0.22;
+      const counter = Math.sign(ang) * Math.min(Math.abs(ang) * Math.PI / 180, 0.5) * 0.22 / (1 + speed / 50);
       delta += counter;
     }
     steer = delta / (car.p.maxSteer * ease);
@@ -58,8 +58,11 @@ export function autoDrive(car, model, pace = 0.85, out = {}) {
     // yaw-rate feedback against what the line wants: catches a pull (a locked
     // inside wheel, a bump, a gust of oversteer) before it becomes an angle
     const rWant = speed * model.line[li].k;               // what the road wants HERE, not 40 m on
-    steer -= (car.r - rWant) * 0.24;
+    steer -= (car.r - rWant) * 0.24 / (1 + speed / 40);   // gentler hands at speed
     out.dbg = { pursuit, offTerm: -off * laneGain, yawTerm: -(car.r - rWant) * 0.24, rWant, alpha, dist };
+    // at speed, the wheel barely moves: full lock at 80 mph is 3 rad/s of yaw
+    const lockCap = Math.min(0.92, 14 / Math.max(speed, 1));
+    steer = Math.max(-lockCap, Math.min(lockCap, steer));
     steer = Math.max(-0.92, Math.min(0.92, steer));
   }
 
@@ -107,8 +110,8 @@ export function autoDrive(car, model, pace = 0.85, out = {}) {
   // the car is still sideways is a tank-slapper every time.
   const ang = Math.abs(car.driftAngle);
   throttle = Math.min(throttle, Math.max(0.15, 1 - ang / 28));
-  if (out.prevThrottle != null) throttle = Math.min(throttle, out.prevThrottle + 0.03);
-  out.prevThrottle = throttle;
+  if (out.prevThrottle != null) throttle = Math.max(out.prevThrottle - 0.045, Math.min(throttle, out.prevThrottle + 0.03));
+  out.prevThrottle = throttle;                               // no snap-lifts at 130 mph either
   let brake = dv < -0.6 ? Math.min(1, (-dv - 0.6) * 0.34) : 0;
   // Brake in a straight line. Braking mid-corner unloads the rear and, on a car
   // set up to oversteer, that's a spin every time — which is exactly how this
@@ -119,8 +122,11 @@ export function autoDrive(car, model, pace = 0.85, out = {}) {
   const aLatPlan = speed * speed * Math.abs(model.line[li].k);
   brake *= Math.sqrt(Math.max(0.04, 1 - (aLatPlan / aMax) ** 2));
   if (Math.abs(car.driftAngle) > 12 && speed > 6) { brake = 0; throttle = Math.min(throttle, 0.2); }
-  // off the tarmac or recovering: no heroics, just get back on
-  if (lost || spun || (car.wheels[2].grip < 0.8 && car.wheels[3].grip < 0.8)) throttle = Math.min(throttle, 0.45);
+  // off the tarmac or recovering: no heroics, just get back on — and stay
+  // gentle for a moment after rejoining, the car is still pointing wherever
+  const offRoad = car.wheels[2].grip < 0.8 && car.wheels[3].grip < 0.8;
+  out.rejoinT = offRoad ? 1.5 : Math.max(0, (out.rejoinT ?? 0) - 1 / 120);
+  if (lost || spun || offRoad || out.rejoinT > 0) throttle = Math.min(throttle, 0.45);
   out.steer = steer;
   out.throttle = throttle;
   out.brake = brake;

@@ -14,7 +14,8 @@ export class HUD {
     this.el = {};
     for (const id of ['speed', 'unit', 'gear', 'rpmBar', 'lapTime', 'bestTime', 'delta', 'sectors',
                       'trackName', 'carName', 'aids', 'toast', 'driftAngle', 'driftHold', 'driftBar',
-                      'gripBar', 'padHint']) {
+                      'gripBar', 'padHint', 'countdown', 'racePanel', 'racePos', 'raceTotal', 'raceLap', 'raceLaps',
+                      'itemSlot', 'itemIcon', 'itemName', 'results', 'resultsTitle', 'resultsList']) {
       this.el[id] = root.querySelector('#' + id);
     }
     this.map = root.querySelector('#minimap');
@@ -92,9 +93,38 @@ export class HUD {
 
     const ang = Math.abs(s.driftAngle);
     e.driftAngle.textContent = ang.toFixed(0) + '°';
-    e.driftBar.style.transform = `scaleX(${Math.min(ang / 60, 1)})`;
-    e.driftBar.classList.toggle('hot', ang > 32);
-    e.driftHold.textContent = s.driftHold > 0.4 ? s.driftHold.toFixed(1) + 's' : '';
+    // the drift bar is the turbo charge: fills while sliding, colour = level
+    const charge = Math.min((s.driftCharge || 0) / 2.4, 1);
+    e.driftBar.style.transform = `scaleX(${charge > 0 ? charge : Math.min(ang / 60, 1) * 0.3})`;
+    e.driftBar.className = 'lv' + (s.driftLevel || 0);
+    e.driftHold.textContent = s.driftLevel ? 'TURBO ' + '•'.repeat(s.driftLevel) : (s.driftHold > 0.4 ? s.driftHold.toFixed(1) + 's' : '');
+    this.root.classList.toggle('boost', !!s.boost);
+    this.root.classList.toggle('stunned', !!s.stunned);
+    if (s.bump && !this.bumped) { this.root.classList.add('bump'); setTimeout(() => this.root.classList.remove('bump'), 320); }
+    this.bumped = !!s.bump;
+
+    // race
+    const r = s.race;
+    e.racePanel.style.display = r ? 'flex' : 'none';
+    if (r) {
+      e.racePos.textContent = 'P' + r.pos; e.raceTotal.textContent = '/' + r.total;
+      e.raceLap.textContent = Math.min(r.lap + 1, r.laps); e.raceLaps.textContent = '/' + r.laps;
+      if (r.state === 'countdown') {
+        const n = Math.ceil(r.countdown);
+        const txt = r.countdown > 3 ? '' : String(n);
+        e.countdown.textContent = txt; e.countdown.className = txt ? 'show' : '';
+      } else if (r.state === 'racing' && r.t < 1.1) {
+        e.countdown.textContent = 'GO'; e.countdown.className = 'show go';
+      } else e.countdown.className = '';
+      if (r.state === 'finished') {
+        e.results.classList.add('show');
+        e.resultsTitle.textContent = r.pos === 1 ? 'P1 · YOU' : 'P' + r.pos;
+        e.resultsList.innerHTML = r.standings.map(x =>
+          `<li class="${x.isPlayer ? 'me' : ''}"><b>P${x.pos}</b>${x.name}<span>${x.time != null ? x.time.toFixed(2) : '…'}</span></li>`).join('');
+      } else e.results.classList.remove('show');
+    } else { e.countdown.className = ''; e.results.classList.remove('show'); }
+    e.itemSlot.classList.toggle('has', !!s.item);
+    if (s.item) { e.itemIcon.textContent = s.item.icon; e.itemName.textContent = s.item.label; }
     e.gripBar.style.transform = `scaleX(${Math.min(s.grip, 1)})`;
     this.root.classList.toggle('air', !!s.air);
 
@@ -160,6 +190,11 @@ export class HUD {
       const [px, py] = P(s.pace.x, s.pace.z);
       c.fillStyle = 'rgba(255,220,120,0.9)';
       c.beginPath(); c.arc(px, py, 3, 0, 7); c.fill();
+    }
+    if (s.others) for (const o of s.others) {
+      const [ox, oy] = P(o.x, o.z);
+      c.fillStyle = 'rgba(255,120,120,0.9)';
+      c.beginPath(); c.arc(ox, oy, 2.6, 0, 7); c.fill();
     }
     const [x, y] = P(s.carX, s.carZ);
     c.save();

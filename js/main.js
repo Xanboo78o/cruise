@@ -1,4 +1,5 @@
-// main.js — glue. Fixed-step physics, lap timing, aids, cameras, menu.
+// main.js — glue. Fixed-step physics for every car on track, lap timing, race
+// state, aids, cameras, menu.
 
 import * as THREE from 'three';
 import { Car } from './car.js';
@@ -15,22 +16,26 @@ import { LapRecorder, GhostPlayer, PaceCar, Best } from './ghost.js';
 import { Audio } from './audio.js';
 import { buildCity } from './city.js';
 import { autoDrive, AUTO_AIDS } from './driver.js';
+import { Items, ITEM_INFO } from './items.js';
+import { Bots } from './bots.js';
+import { Race, collideCars } from './race.js';
 
 const SKY_CYCLE = ['sunset', 'noon', 'dawn', 'night'];
 const MS = 2.23694;
 
 const S = {
   track: 'harbor', carId: 'hachi', unitMph: true,
-  stability: 0.35, showLine: true, showBoards: true,
+  stability: 0.5, showLine: true, showBoards: true,
   ghostOn: true, paceOn: false, pace: 0.85, auto: false, frozen: false,
   hudOn: true, vertical: false, skyIdx: 0, skyChosen: false, running: false,
+  mode: 'race', bots: 7, laps: 3,
 };
 
 const app = document.getElementById('app');
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = THREE.PCFShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.05;
 app.appendChild(renderer.domElement);
@@ -43,10 +48,19 @@ const hud = new HUD(document.getElementById('hud'));
 const audio = new Audio();
 
 const car = new Car(S.carId, PRESETS);
-const env = { terrain: null, surfaceAt: (x, z) => model.surfaceAt(x, z) };
 let carMesh, ghostMesh, paceMesh, world, model, skyMesh, lights;
-let skid, smoke;
+let skid, smoke, items = null, bots = null, race = null;
 const modelCache = new Map();
+
+// the road under the wheels, plus whatever someone spilled on it
+const env = {
+  terrain: null,
+  surfaceAt: (x, z) => {
+    const s = model.surfaceAt(x, z);
+    if (items) { const k = items.slickAt(x, z); if (k < 1) return { ...s, grip: s.grip * k }; }
+    return s;
+  },
+};
 
 // ---------------------------------------------------------------- world setup
 function getModel(id) {
@@ -58,10 +72,10 @@ function getModel(id) {
 
 function clearScene() {
   if (world) world.dispose();
-  if (skid) scene.remove(skid.mesh);
-  if (smoke) scene.remove(smoke.points);
+  if (items) items.dispose();
   for (const o of [...scene.children]) scene.remove(o);
   scene.children.length = 0;
+  items = null; bots = null; race = null;
 }
 
 function loadTrack(id) {
@@ -73,39 +87,63 @@ function loadTrack(id) {
   const skyKey = SKY_CYCLE[S.skyIdx] || model.def.sky;
   skyMesh = makeSky(scene, skyKey);
   lights = applyLighting(scene, skyKey);
-  world = model.buildWorld
-    ? model.buildWorld(scene, skyKey)
-    : new World(model, scene, { sky: skyKey });
+  world = model.buildWorld ? model.buildWorld(scene, skyKey) : new World(model, scene, { sky: skyKey });
   world.setAids(S.showLine, S.showBoards);
   skid = new SkidMarks(scene);
   smoke = new Smoke(scene);
 
-  carMesh = buildCar(car.p);
+  car.setPreset(S.carId);
+  carMesh = buildCar(car.p, { lights: true });
   scene.add(carMesh);
-  ghostMesh = buildCar(car.p, 0x9fb4ff);
+  ghostMesh = buildCar(car.p, { tint: 0x9fb4ff });
   setCarOpacity(ghostMesh, 0.32);
   ghostMesh.visible = false;
   scene.add(ghostMesh);
-  paceMesh = buildCar(car.p, 0xf5c145);
+  paceMesh = buildCar(car.p, { tint: 0xf5c145 });
   setCarOpacity(paceMesh, 0.55);
   paceMesh.visible = false;
   scene.add(paceMesh);
-
   setHeadlights(carMesh, skyKey === 'night');
+
   rig.setTrackCams(model);
   hud.prepareMap(model);
   pace = new PaceCar(model, S.pace);
   loadBest();
-  resetCar(true);
+
+  if (S.mode === 'race') startRace();
+  else resetCar(true);
 }
 
-// ------------------------------------------------------------------- timing
+// ------------------------------------------------------------------- race
+function startRace() {
+  if (bots) for (const b of bots.list) if (b.mesh) scene.remove(b.mesh);
+  if (items) items.dispose();
+  items = new Items(model, scene);
+  bots = new Bots(model, S.bots, S.carId);
+  for (const b of bots.list) { b.mesh = buildCar(PRESETS[b.id]); scene.add(b.mesh); }
+  race = new Race(model, [{ car, name: car.p.label, isPlayer: true }, ...bots.list.map(b => ({ car: b.car, name: b.name }))], S.laps);
+  race.grid();
+  // settle everyone on their springs
+  for (let i = 0; i < 90; i++) {
+    car.step(1 / 120, { throttle: 0, brake: 1, steer: 0, handbrake: 0 }, env, S.stability);
+    bots.step(1 / 120, env, [], () => 0, null, null, true);
+  }
+  car.item = null; car.boostT = 0; car.stunT = 0; car.shieldT = 0; car.megaT = 0;
+  started = false; rec.reset(); skid.clear(); smoke.clear();
+  hud.toast('', 1);
+}
+
+const allCars = () => bots ? [car, ...bots.cars] : [car];
+const progOf = (c) => race ? race.progOf(c) : 0;
+
+// ------------------------------------------------------------------- timing (cruise)
 let lap = 0, bestTime = null, bestFrames = null, lastLap = null;
 let sectorTimes = [null, null, null], bestSectors = [null, null, null];
 let sectorIdx = 0, prevDist = 0, started = false, distTravelled = 0;
 const rec = new LapRecorder();
 let ghost = null, pace = null;
 let driftHold = 0, driftTotal = 0, bestHold = 0, stuckT = 0, wasLanding = false, airToast = false;
+let time = 0;
 
 function loadBest() {
   const b = Best.get(S.track, S.carId);
@@ -117,7 +155,7 @@ function loadBest() {
 
 function resetCar(toStart) {
   const m = model;
-  let p, yaw;
+  let p;
   if (toStart) {
     const i = Math.floor((m.def.startIndex || 0) * m.samples.length) % m.samples.length;
     p = m.samples[i];
@@ -125,7 +163,7 @@ function resetCar(toStart) {
     const nr = m.nearest(car.x, car.z);
     p = m.samples[nr.i];
   }
-  yaw = Math.atan2(p.tx, p.tz);
+  const yaw = Math.atan2(p.tx, p.tz);
   car.reset(p.x, p.z, yaw, model.heightAt(p.x, p.z));
   for (let i = 0; i < 90; i++) car.step(1 / 120, { throttle: 0, brake: 1, steer: 0, handbrake: 0 }, env, S.stability);
   lap = 0; started = false; prevDist = p.s; distTravelled = 0;
@@ -133,6 +171,16 @@ function resetCar(toStart) {
   rec.reset();
   if (pace) pace.reset(p.s);
   driftHold = 0; stuckT = 0;
+}
+
+// in a race, "back on track" means the nearest point of the road, facing forwards, with a shove
+function rescue() {
+  const nr = model.nearest(car.x, car.z);
+  const p = model.samples[nr.i];
+  const lat = Math.max(-model.halfWidth * 0.6, Math.min(model.halfWidth * 0.6, nr.lat));
+  const x = p.x + p.nx * lat, z = p.z + p.nz * lat;
+  car.reset(x, z, Math.atan2(p.tx, p.tz), model.heightAt(x, z));
+  car.shieldT = Math.max(car.shieldT, 1.5);
 }
 
 function onLapDone(t) {
@@ -171,7 +219,6 @@ function updateTiming(dt) {
     }
     return;
   }
-  // closed: crossing the start line forwards
   const startS = model.samples[Math.floor((model.def.startIndex || 0) * model.samples.length) % model.samples.length].s;
   const before = ((prevDist - step) - startS + model.length) % model.length;
   const after = (d - startS + model.length) % model.length;
@@ -184,7 +231,7 @@ function updateTiming(dt) {
     rec.sample(dt, car);
     const frac = after / model.length;
     const want = frac < 1 / 3 ? 0 : frac < 2 / 3 ? 1 : 2;
-    if (want !== sectorIdx && want > sectorIdx) {          // S3 is closed out by the lap itself
+    if (want !== sectorIdx && want > sectorIdx) {
       sectorTimes[sectorIdx] = rec.t - (sectorTimes[0] || 0) - (sectorIdx > 1 ? (sectorTimes[1] || 0) : 0);
       sectorIdx = want;
     }
@@ -194,6 +241,7 @@ function updateTiming(dt) {
 // ----------------------------------------------------------------- main loop
 let acc = 0, last = performance.now() / 1000;
 const STEP = 1 / 120;
+let itemHeld = false;
 
 function frame() {
   requestAnimationFrame(frame);
@@ -201,10 +249,23 @@ function frame() {
   let dt = Math.min(now - last, 0.1);
   last = now;
   if (!S.running) { renderer.render(scene, camera); input.endFrame(); return; }
+  time += dt;
 
   handleKeys();
   const raw = input.read();
-  const inp = S.auto ? autoDrive(car, model, S.pace) : raw;
+  const holding = race && race.state === 'countdown';
+  let inp = S.auto ? autoDrive(car, model, S.pace) : raw;
+  if (holding) inp = { throttle: 0, brake: 1, steer: raw.steer, handbrake: 0 };
+  if (car.stunT > 0) inp = { ...inp, throttle: 0 };
+
+  // item: E / Shift / pad X — edge-triggered
+  const itemBtn = input.keys.has('e') || input.keys.has('shift') || !!(input.pad && input.pad.buttons[2] && input.pad.buttons[2].pressed);
+  if (itemBtn && !itemHeld && items && car.item && !holding) {
+    const used = items.use(car, allCars(), progOf);
+    if (used) hud.toast(ITEM_INFO[used].label, 700);
+  }
+  itemHeld = itemBtn;
+  if (S.auto && items && car.item && race && race.started && Math.random() < dt * 0.6) items.use(car, allCars(), progOf);
 
   if (!S.frozen) {
     acc += dt;
@@ -212,34 +273,42 @@ function frame() {
     while (acc >= STEP && steps < 8) {
       car.step(STEP, inp, env, S.auto ? AUTO_AIDS : S.stability);
       if (model.collide) model.collide(car);
+      if (bots) {
+        bots.step(STEP, env, allCars(), progOf, race ? race.progOf(car) : null, items, holding);
+        if (model.collide) for (const c of bots.cars) model.collide(c);
+        collideCars(allCars(), (a, b, j) => { if ((a === car || b === car) && j > 400) rig.kick(Math.min(1, j / 6000)); });
+      }
       acc -= STEP; steps++;
     }
-    updateTiming(dt);
+    if (race) {
+      race.update(dt);
+      if (race.lastEvent === 'go') { hud.toast('', 1); race.lastEvent = null; }
+      if (race.lastEvent === 'finish') { race.lastEvent = null; }
+      const st = race.standings();
+      items.update(dt, st.map((e, i) => ({ car: e.car, rank01: st.length > 1 ? i / (st.length - 1) : 0.5 })));
+    } else updateTiming(dt);
 
-    // drift bookkeeping — no score, just a clock that runs while you're sideways
     const ang = Math.abs(car.driftAngle);
     if (ang > 12 && car.speed > 8 && !car.spun) { driftHold += dt; driftTotal += dt; }
     else { if (driftHold > bestHold) bestHold = driftHold; driftHold = 0; }
 
-    // stuck / off in the weeds
     const off = model.surfaceAt(car.x, car.z);
-    stuckT = (car.speed < 1.2 && !S.frozen) ? stuckT + dt : 0;
-    if (S.auto && (stuckT > 2.5 || off.grip < 0.5 && car.speed < 3)) { resetCar(false); }
+    stuckT = (car.speed < 1.2 && !holding) ? stuckT + dt : 0;
+    if (S.auto && (stuckT > 2.5 || off.grip < 0.5 && car.speed < 3)) { race ? rescue() : resetCar(false); }
   }
 
-  const nr = model.nearest(car.x, car.z);
-  const surf = model.surfaceAt(car.x, car.z, nr);
-  updateCarMesh(carMesh, car, dt, inp.brake > 0.05 || inp.handbrake > 0.5);
+  const surf = model.surfaceAt(car.x, car.z);
+  updateCarMesh(carMesh, car, dt, inp.brake > 0.05 || inp.handbrake > 0.5, time);
+  if (bots) for (const b of bots.list) updateCarMesh(b.mesh, b.car, dt, b.out.brake > 0.05, time);
   emitFx(dt, surf);
 
-  // ghost + pace car
-  ghostMesh.visible = S.ghostOn && ghost && ghost.valid && started;
+  ghostMesh.visible = !race && S.ghostOn && ghost && ghost.valid && started;
   if (ghostMesh.visible) {
     const g = ghost.at(rec.t);
     if (g) placeStaticCar(ghostMesh, g.x, g.y, g.z, g.yaw);
     else ghostMesh.visible = false;
   }
-  paceMesh.visible = S.paceOn && model.closed;
+  paceMesh.visible = !race && S.paceOn && model.closed;
   if (paceMesh.visible && !S.frozen) {
     pace.pace = S.pace;
     pace.step(dt);
@@ -248,7 +317,7 @@ function frame() {
 
   if (car.landing > 0.25 && !wasLanding) rig.kick(car.landing * 0.7);
   wasLanding = car.landing > 0.25;
-  if (car.airborne && car.airTime > 0.35 && !airToast) { airToast = true; }
+  if (car.airborne && car.airTime > 0.35 && !airToast) airToast = true;
   if (!car.airborne && airToast) { airToast = false; if (car.bestAir > 0.6) hud.toast('AIR  ' + car.bestAir.toFixed(2) + 's', 1200); }
   rig.update(dt, car, input.mouse);
   if (skyMesh) skyMesh.position.copy(camera.position);
@@ -261,23 +330,30 @@ function frame() {
   smoke.update(dt);
   audio.update(car, surf);
 
-  const gDelta = ghost && ghost.valid && started ? deltaToGhost() : null;
+  const me = race ? race.player : null;
+  const gDelta = !race && ghost && ghost.valid && started ? deltaToGhost() : null;
   hud.update(dt, {
     speedDisplay: car.speed * (S.unitMph ? MS : 3.6),
     unit: S.unitMph ? 'MPH' : 'KM/H',
     gear: car.gear, reverse: car.reversing,
     rpm: car.rpm / car.p.redline,
-    lap: started ? rec.t : lastLap, best: bestTime, delta: gDelta,
-    sectors: sectorTimes.map((t, i) => ({
+    lap: race ? (race.started ? race.t - me.lapStart : null) : (started ? rec.t : lastLap),
+    best: race ? me.best : bestTime, delta: gDelta,
+    sectors: race ? [] : sectorTimes.map((t, i) => ({
       t, state: i === sectorIdx ? 'live' : (t != null && bestSectors[i] != null && t <= bestSectors[i]) ? 'good' : t != null ? 'ok' : '',
     })),
     trackName: model.def.name, carName: car.p.label,
     aids: aidsLabel(),
     driftAngle: car.driftAngle, driftHold, grip: Math.min(car.rearSlide / 16, 1), air: car.airborne,
+    driftCharge: car.driftCharge, driftLevel: car.driftLevel, boost: car.boostT > 0, stunned: car.stunT > 0, bump: car.bumpT > 0.3,
     throttle: inp.throttle, brake: inp.brake, steer: inp.steer,
     carX: car.x, carZ: car.z, carYaw: car.yaw,
     ghost: ghostMesh.visible ? ghostMesh.position : null,
     pace: paceMesh.visible ? pace : null,
+    others: bots ? bots.cars : null,
+    item: car.item ? ITEM_INFO[car.item] : null,
+    race: race ? { state: race.state, countdown: race.countdown, t: race.t, pos: me.pos, total: race.entrants.length,
+                   lap: me.lap, laps: race.laps, standings: race.state === 'finished' ? race.standings() : null } : null,
     padHint: input.usingPad ? '🎮' : '',
   });
 
@@ -286,7 +362,6 @@ function frame() {
 }
 
 function deltaToGhost() {
-  // where was the ghost when it had covered the same distance?
   const g = ghost.frames;
   if (!g || g.length < 10) return null;
   let bestI = 0, bestD = 1e9;
@@ -299,33 +374,32 @@ function deltaToGhost() {
 }
 
 function emitFx(dt, surf) {
-  const marks = surf.grip > 0.75;
-  for (const [front, right] of [[false, false], [false, true], [true, false], [true, true]]) {
-    const pw = car.wheels[(front ? 0 : 2) + (right ? 1 : 0)];
-    const w = { x: pw.x, z: pw.z };
-    const slide = pw.contact ? pw.slide : 0;
-    const key = (front ? 'f' : 'r') + (right ? 'R' : 'L');
-    // rubber comes off when the contact patch is actually scrubbing at speed —
-    // a launch chirp is a chirp, not a cloud
-    const inten = Math.min(Math.max(slide - 3.5, 0) / 12, 1) * Math.min(1, Math.max(0, (car.speed - 3) / 8));
-    const y = pw.ground;
-    if (marks) skid.addPoint(key, w.x, y, w.z, Math.cos(car.yaw), -Math.sin(car.yaw), inten, 0.16);
-    if (inten > 0.3 && Math.random() < inten * 0.45) {
-      const col = marks ? [0.88, 0.88, 0.9] : [0.78, 0.68, 0.5];
-      smoke.emit(w.x, y, w.z, -car.vx * 0.2, -car.vz * 0.2, inten * 0.6, col);
+  const list = bots ? [car, ...bots.cars] : [car];
+  for (const c of list) {
+    const sf = c === car ? surf : model.surfaceAt(c.x, c.z);
+    const marks = sf.grip > 0.75;
+    for (let i = 0; i < 4; i++) {
+      const pw = c.wheels[i];
+      const slide = pw.contact ? pw.slide : 0;
+      const key = c.presetName + i + (c === car ? 'p' : 'b' + list.indexOf(c));
+      const inten = Math.min(Math.max(slide - 3.5, 0) / 12, 1) * Math.min(1, Math.max(0, (c.speed - 3) / 8));
+      if (marks) skid.addPoint(key, pw.x, pw.ground, pw.z, Math.cos(c.yaw), -Math.sin(c.yaw), inten, 0.16);
+      if (inten > 0.3 && Math.random() < inten * 0.45) {
+        const col = marks ? [0.88, 0.88, 0.9] : [0.78, 0.68, 0.5];
+        smoke.emit(pw.x, pw.ground, pw.z, -c.vx * 0.2, -c.vz * 0.2, inten * 0.6, col);
+      }
     }
-  }
-  if (car.speed > 6 && surf.grip < 0.7 && Math.random() < 0.3) {
-    smoke.emit(car.x, car.y, car.z, -car.vx * 0.1, -car.vz * 0.1, 0.4, [0.74, 0.64, 0.47]);
+    if (c.speed > 6 && sf.grip < 0.7 && Math.random() < 0.3) smoke.emit(c.x, c.y, c.z, -c.vx * 0.1, -c.vz * 0.1, 0.4, [0.74, 0.64, 0.47]);
   }
 }
 
 function aidsLabel() {
   const bits = [];
+  if (race) bits.push('RACE');
   if (S.showLine) bits.push('LINE');
   if (S.showBoards) bits.push('BOARDS');
-  if (S.ghostOn && ghost && ghost.valid) bits.push('GHOST');
-  if (S.paceOn) bits.push('PACE ' + Math.round(S.pace * 100) + '%');
+  if (!race && S.ghostOn && ghost && ghost.valid) bits.push('GHOST');
+  if (!race && S.paceOn) bits.push('PACE ' + Math.round(S.pace * 100) + '%');
   if (S.auto) bits.push('AUTO');
   if (S.frozen) bits.push('FROZEN');
   bits.push('AIDS ' + Math.round(S.stability * 100) + '%');
@@ -341,15 +415,15 @@ function handleKeys() {
   if (input.tapped('l')) { S.showLine = !S.showLine; world.setAids(S.showLine, S.showBoards); hud.toast('LINE ' + (S.showLine ? 'ON' : 'OFF'), 1000); }
   if (input.tapped('b')) { S.showBoards = !S.showBoards; world.setAids(S.showLine, S.showBoards); hud.toast('BRAKE BOARDS ' + (S.showBoards ? 'ON' : 'OFF'), 1000); }
   if (input.tapped('g')) { S.ghostOn = !S.ghostOn; hud.toast('GHOST ' + (S.ghostOn ? 'ON' : 'OFF'), 1000); }
-  if (input.tapped('p')) { S.paceOn = !S.paceOn; if (S.paceOn) pace.reset(model.nearest(car.x, car.z).p.s + 40); hud.toast('PACE CAR ' + (S.paceOn ? 'ON' : 'OFF'), 1000); }
+  if (input.tapped('p') && !race) { S.paceOn = !S.paceOn; if (S.paceOn) pace.reset(model.nearest(car.x, car.z).p.s + 40); hud.toast('PACE CAR ' + (S.paceOn ? 'ON' : 'OFF'), 1000); }
   if (input.tapped('[')) { S.pace = Math.max(0.4, S.pace - 0.05); hud.toast('PACE ' + Math.round(S.pace * 100) + '%', 900); }
   if (input.tapped(']')) { S.pace = Math.min(1.05, S.pace + 0.05); hud.toast('PACE ' + Math.round(S.pace * 100) + '%', 900); }
   if (input.tapped(',')) { S.stability = Math.max(0, S.stability - 0.1); hud.toast('AIDS ' + Math.round(S.stability * 100) + '%', 1000); }
   if (input.tapped('.')) { S.stability = Math.min(1, S.stability + 0.1); hud.toast('AIDS ' + Math.round(S.stability * 100) + '%', 1000); }
   if (input.tapped('z')) { S.auto = !S.auto; hud.toast(S.auto ? 'AUTOPILOT — sit back' : 'AUTOPILOT OFF', 1400); }
   if (input.tapped('f')) { S.frozen = !S.frozen; if (S.frozen) rig.mode = 'orbit'; hud.toast(S.frozen ? 'FROZEN — drag to orbit' : 'ROLLING', 1200); }
-  if (input.tapped('r')) resetCar(false);
-  if (input.tapped('t')) resetCar(true);
+  if (input.tapped('r')) { if (race && race.state === 'finished') startRace(); else if (race) rescue(); else resetCar(false); }
+  if (input.tapped('t')) { if (race) startRace(); else resetCar(true); }
   if (input.tapped('x')) { skid.clear(); smoke.clear(); hud.toast('MARKS CLEARED', 900); }
   if (input.tapped('n')) { S.skyIdx = (S.skyIdx + 1) % SKY_CYCLE.length; S.skyChosen = true; reloadSky(); }
   if (input.tapped('m')) hud.toast('SOUND ' + (audio.toggle() ? 'ON' : 'OFF'), 900);
@@ -369,20 +443,19 @@ const menu = document.getElementById('menu');
 function openMenu() { S.running = false; menu.classList.remove('hidden'); }
 function closeMenu() { menu.classList.add('hidden'); S.running = true; last = performance.now() / 1000; audio.start(); }
 
+function chips(el, list, cur, attr, fmt) {
+  el.innerHTML = list.map(v => `<button class="chip ${v === cur ? 'sel' : ''}" data-${attr}="${v}">${fmt(v)}</button>`).join('');
+}
+
 function buildMenu() {
   const tw = document.getElementById('trackList');
   const ids = [...TRACK_ORDER, 'city'];
   tw.innerHTML = ids.map(id => {
     const d = id === 'city' ? { name: 'THE CITY', blurb: 'free roam · 30 blocks · a street circuit through it' } : TRACKS[id];
-    return `<button class="card ${id === S.track ? 'sel' : ''}" data-track="${id}">
-      <b>${d.name}</b><span>${d.blurb}</span></button>`;
+    return `<button class="card ${id === S.track ? 'sel' : ''}" data-track="${id}"><b>${d.name}</b><span>${d.blurb}</span></button>`;
   }).join('');
-  tw.onclick = e => {
-    const b = e.target.closest('[data-track]');
-    if (!b) return;
-    S.track = b.dataset.track;
-    buildMenu();
-  };
+  tw.onclick = e => { const b = e.target.closest('[data-track]'); if (!b) return; S.track = b.dataset.track; buildMenu(); };
+
   const cw = document.getElementById('carList');
   cw.innerHTML = Object.keys(TIERS).map(tier =>
     `<div class="tier"><h3>${TIERS[tier]}</h3><div class="list">` +
@@ -390,31 +463,28 @@ function buildMenu() {
       const p = PRESETS[id];
       return `<button class="card ${id === S.carId ? 'sel' : ''}" data-car="${id}"><b>${p.label}</b><span>${p.blurb}</span></button>`;
     }).join('') + '</div></div>').join('');
-  cw.onclick = e => {
-    const b = e.target.closest('[data-car]');
-    if (!b) return;
-    S.carId = b.dataset.car;
-    buildMenu();
-  };
+  cw.onclick = e => { const b = e.target.closest('[data-car]'); if (!b) return; S.carId = b.dataset.car; buildMenu(); };
+
   const sky = document.getElementById('skyList');
-  sky.innerHTML = SKY_CYCLE.map((k, i) =>
-    `<button class="chip ${i === S.skyIdx ? 'sel' : ''}" data-sky="${i}">${k.toUpperCase()}</button>`).join('');
-  sky.onclick = e => {
-    const b = e.target.closest('[data-sky]');
-    if (!b) return;
-    S.skyIdx = +b.dataset.sky;
-    S.skyChosen = true;
-    buildMenu();
-  };
+  chips(sky, [0, 1, 2, 3], S.skyIdx, 'sky', i => SKY_CYCLE[i].toUpperCase());
+  sky.onclick = e => { const b = e.target.closest('[data-sky]'); if (!b) return; S.skyIdx = +b.dataset.sky; S.skyChosen = true; buildMenu(); };
+
+  const mode = document.getElementById('modeList');
+  chips(mode, ['race', 'cruise'], S.mode, 'mode', v => v.toUpperCase());
+  mode.onclick = e => { const b = e.target.closest('[data-mode]'); if (!b) return; S.mode = b.dataset.mode; buildMenu(); };
+  const bl = document.getElementById('botList');
+  bl.style.display = S.mode === 'race' ? '' : 'none';
+  chips(bl, [3, 5, 7, 11], S.bots, 'bots', v => v + ' BOTS');
+  bl.onclick = e => { const b = e.target.closest('[data-bots]'); if (!b) return; S.bots = +b.dataset.bots; buildMenu(); };
+  const ll = document.getElementById('lapList');
+  ll.style.display = S.mode === 'race' ? '' : 'none';
+  chips(ll, [1, 3, 5], S.laps, 'laps', v => v + (v === 1 ? ' LAP' : ' LAPS'));
+  ll.onclick = e => { const b = e.target.closest('[data-laps]'); if (!b) return; S.laps = +b.dataset.laps; buildMenu(); };
 }
 
-document.getElementById('drive').onclick = () => {
-  car.setPreset(S.carId);
-  loadTrack(S.track);
-  closeMenu();
-};
+document.getElementById('drive').onclick = () => { loadTrack(S.track); closeMenu(); };
 document.getElementById('shorts').onclick = () => {
-  car.setPreset(S.carId);
+  S.mode = 'race';
   loadTrack(S.track);
   S.auto = true; S.hudOn = false; S.vertical = true; S.showLine = false; S.showBoards = false;
   document.body.classList.add('nohud', 'vertical');
@@ -422,7 +492,6 @@ document.getElementById('shorts').onclick = () => {
   rig.mode = 'tv';
   closeMenu();
   resize();
-  hud.toast('', 1);
 };
 
 function resize() {
@@ -439,18 +508,20 @@ function resize() {
 }
 addEventListener('resize', resize);
 
-// ?t=harbor&c=gt&sky=3&go=1&shorts=1 — bookmarkable, and how the screenshot
-// tool gets in without a click.
+// ?t=harbor&c=gt&mode=race&bots=7&laps=3&sky=3&go=1&shorts=1 — bookmarkable
 const q = new URLSearchParams(location.search);
 if (q.has('t')) S.track = q.get('t');
 if (q.has('c')) S.carId = q.get('c');
 if (q.has('sky')) { S.skyIdx = +q.get('sky'); S.skyChosen = true; }
 if (q.has('pace')) S.pace = +q.get('pace');
 if (q.has('grip')) S.stability = +q.get('grip');
+if (q.has('mode')) S.mode = q.get('mode');
+if (q.has('bots')) S.bots = +q.get('bots');
+if (q.has('laps')) S.laps = +q.get('laps');
 buildMenu();
 resize();
 if (q.has('go') || q.has('shorts')) {
-  car.setPreset(S.carId);
+  if (q.has('shorts')) S.mode = 'race';
   loadTrack(S.track);
   if (q.has('shorts')) {
     S.auto = true; S.hudOn = false; S.vertical = true; S.showLine = false; S.showBoards = false;
@@ -464,4 +535,4 @@ if (q.has('go') || q.has('shorts')) {
   closeMenu();
 }
 frame();
-window.CRUISE = { S, car, get model() { return model; } };
+window.CRUISE = { S, car, get model() { return model; }, get race() { return race; }, get bots() { return bots; } };
