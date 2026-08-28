@@ -532,6 +532,7 @@ if (q.has('go') || q.has('shorts')) {
   }
   if (q.has('cam')) rig.mode = q.get('cam');
   if (q.has('auto')) S.auto = true;
+  if (q.has('cd') && race) race.countdown = +q.get('cd');    // short lights for screenshots
   closeMenu();
 }
 frame();
