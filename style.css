@@ -228,3 +228,5 @@ body.nohud .tc { display: none; }
 
 .nav.pad span { opacity: .55; }
 .nav.pad::after { content: 'A pick · B back · d-pad move'; color: var(--ink); letter-spacing: 2px; }
+
+.dot.cup { background: #e8e4d8; }
