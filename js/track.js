@@ -2,6 +2,8 @@
 // a resampled centerline, a solved racing line, a speed profile (where to brake),
 // and a lookup grid so the car can ask "what am I standing on?" in O(1).
 
+import { Terrain } from './terrain.js';
+
 const G = 9.81;
 
 // Centripetal Catmull-Rom (Barry-Goldman form). The uniform version cusps and
@@ -96,7 +98,7 @@ export function differentiate(s, closed) {
     const e = at(i - 3), f = at(i + 3);
     const d1 = Math.hypot(b.x - e.x, b.z - e.z), d2 = Math.hypot(f.x - b.x, f.z - b.z), d3 = Math.hypot(f.x - e.x, f.z - e.z);
     const area = (b.x - e.x) * (f.z - e.z) - (f.x - e.x) * (b.z - e.z);
-    b.k = (d1 * d2 * d3) > 1e-6 ? (2 * area) / (d1 * d2 * d3) : 0;   // signed: + = turning right
+    b.k = (d1 * d2 * d3) > 1e-6 ? -(2 * area) / (d1 * d2 * d3) : 0;  // signed: + = turning right (matches yaw rate)
     b.grade = (f.y - e.y) / (d3 || 1);
   }
   let dist = 0;
@@ -143,7 +145,7 @@ export function solveLine(center, halfWidth, closed, margin = 1.6, iters = 900) 
 // Forward/backward passes give the fastest speed you could carry everywhere,
 // and the moment the two disagree is a braking point.
 export function speedProfile(line, closed, opts = {}) {
-  const aLat = opts.aLat ?? 12.4;        // m/s^2 of cornering grip
+  const aLat = opts.aLat ?? 10.5;        // m/s^2 of cornering grip — a real road car, not a slick
   const aBrake = opts.aBrake ?? 10.5;
   const aAccel = opts.aAccel ?? 4.6;
   const vMax = opts.vMax ?? 62;
@@ -192,10 +194,10 @@ export function speedProfile(line, closed, opts = {}) {
 }
 
 const SURFACES = {
-  road:   { grip: 1.00, drag: 1.00, accel: 1.00, name: 'road' },
-  kerb:   { grip: 0.92, drag: 1.05, accel: 0.95, name: 'kerb' },
-  gravel: { grip: 0.58, drag: 1.9,  accel: 0.55, name: 'gravel' },
-  grass:  { grip: 0.44, drag: 2.6,  accel: 0.40, name: 'grass' },
+  road:   { grip: 1.00, drag: 1.00, accel: 1.00, bump: 0.003, name: 'road' },
+  kerb:   { grip: 0.92, drag: 1.05, accel: 0.95, bump: 0.04,  name: 'kerb' },
+  gravel: { grip: 0.62, drag: 1.9,  accel: 0.55, bump: 0.06,  name: 'gravel' },
+  grass:  { grip: 0.50, drag: 2.6,  accel: 0.40, bump: 0.12,  name: 'grass' },
 };
 export { SURFACES };
 
@@ -210,6 +212,7 @@ export class TrackModel {
     this.profile = speedProfile(this.line, this.closed, def.profile);
     this.buildGrid();
     this.startIndex = def.startIndex ?? 0;
+    this.terrain = new Terrain(this, { rough: def.rough ?? 0.35 });
   }
 
   buildGrid() {
@@ -262,7 +265,10 @@ export class TrackModel {
     }
     const p = s[best];
     const lat = (x - p.x) * p.nx + (z - p.z) * p.nz;
-    return { i: best, lat, dist: Math.sqrt(bestD), p };
+    const along = (x - p.x) * p.tx + (z - p.z) * p.tz;
+    // height interpolated along the road, not snapped to the nearest 2 m sample —
+    // a snapped road is a staircase, and at speed a staircase is a launch ramp
+    return { i: best, lat, along, y: p.y + p.grade * along, dist: Math.sqrt(bestD), p };
   }
 
   surfaceAt(x, z, near) {
@@ -278,8 +284,7 @@ export class TrackModel {
   }
 
   heightAt(x, z, near) {
-    const nr = near || this.nearest(x, z);
-    return nr.p.y;
+    return this.terrain.height(x, z, near);
   }
 
   sampleAtDistance(d) {

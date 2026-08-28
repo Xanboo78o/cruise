@@ -15,16 +15,10 @@ export const SKIES = {
             hemiSky: 0x44567f, hemiGround: 0x181d2b, dir: 0xa8bce8, dirI: 0.55, amb: 0.54, dirPos: [-0.4, 0.7, 0.6] },
 };
 
-// deterministic hash noise — same world every reload
+import { vnoise } from './terrain.js';
 function hash2(x, z) {
-  let h = Math.sin(x * 127.1 + z * 311.7) * 43758.5453;
+  const h = Math.sin(x * 127.1 + z * 311.7) * 43758.5453;
   return h - Math.floor(h);
-}
-function vnoise(x, z) {
-  const xi = Math.floor(x), zi = Math.floor(z), xf = x - xi, zf = z - zi;
-  const u = xf * xf * (3 - 2 * xf), v = zf * zf * (3 - 2 * zf);
-  return (hash2(xi, zi) * (1 - u) + hash2(xi + 1, zi) * u) * (1 - v) +
-         (hash2(xi, zi + 1) * (1 - u) + hash2(xi + 1, zi + 1) * u) * v;
 }
 
 export function makeSky(scene, key) {
@@ -159,7 +153,7 @@ export class World {
   // Terrain follows the road's height near the road and relaxes to the hillside
   // further out, so a 110 m descent still sits in a mountain instead of a hole.
   buildTerrain() {
-    const m = this.model, b = m.bounds;
+    const m = this.model, b = m.bounds, T = m.terrain;
     const pad = 340, cell = 7;
     const x0 = b.minX - pad, z0 = b.minZ - pad;
     const w = Math.ceil((b.maxX + pad - x0) / cell), h = Math.ceil((b.maxZ + pad - z0) / cell);
@@ -168,22 +162,12 @@ export class World {
     const rock = new THREE.Color(0x7d7362);
     const sand = new THREE.Color(0xbca878);
     const dirt = new THREE.Color(0x8b7355);
-    // global hillside: a plane through the road's start and end elevation
-    const first = m.samples[0], last = m.samples[m.samples.length - 1];
-    const dz = (last.z - first.z) || 1;
-    const grade = (last.y - first.y) / dz;
     for (let j = 0; j <= h; j++) {
       for (let i = 0; i <= w; i++) {
         const x = x0 + i * cell, z = z0 + j * cell;
         const nr = m.nearest(x, z);
-        const d = Math.max(0, nr.dist - m.halfWidth);
-        const hill = first.y + (z - first.z) * grade;
-        const blend = Math.min(1, Math.max(0, (d - 14) / 150));
-        let y = nr.p.y * (1 - blend) + hill * blend;
-        y += vnoise(x * 0.012, z * 0.012) * Math.min(d * 0.55, 26) * (this.skyKey === 'dawn' ? 1.0 : 0.35);
-        y += vnoise(x * 0.06, z * 0.06) * Math.min(d * 0.08, 2.2);
-        if (d < 12) y = nr.p.y - 0.35 + d * 0.02;     // flat verge right beside the road
-        pos.push(x, y, z);
+        const d = Math.max(0, Math.abs(nr.lat) - m.halfWidth);
+        pos.push(x, T.height(x, z, nr), z);            // same field the wheels stand on
         const t = vnoise(x * 0.03, z * 0.03);
         let c = grass.clone().lerp(dirt, t * 0.32);
         if (d < 18) c.lerp(sand, 0.35);
@@ -237,8 +221,8 @@ export class World {
         const a = s[i], b = s[i + 1];
         const o1 = side * hw, o2 = side * (hw + 1.25);
         const q = pos.length / 3;
-        pos.push(a.x + a.nx * o1, a.y + 0.08, a.z + a.nz * o1, a.x + a.nx * o2, a.y + 0.16, a.z + a.nz * o2,
-                 b.x + b.nx * o1, b.y + 0.08, b.z + b.nz * o1, b.x + b.nx * o2, b.y + 0.16, b.z + b.nz * o2);
+        pos.push(a.x + a.nx * o1, a.y + 0.07, a.z + a.nz * o1, a.x + a.nx * o2, a.y + 0.12, a.z + a.nz * o2,
+                 b.x + b.nx * o1, b.y + 0.07, b.z + b.nz * o1, b.x + b.nx * o2, b.y + 0.12, b.z + b.nz * o2);
         for (let v = 0; v < 4; v++) col.push(c.r, c.g, c.b);
         idx.push(q, q + 2, q + 1, q + 2, q + 3, q + 1);
       }

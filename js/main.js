@@ -1,11 +1,12 @@
 // main.js — glue. Fixed-step physics, lap timing, aids, cameras, menu.
 
 import * as THREE from 'three';
-import { Car, PRESETS } from './car.js';
+import { Car } from './car.js';
+import { PRESETS, CAR_ORDER, TIERS } from './presets.js';
 import { TrackModel } from './track.js';
 import { TRACKS, TRACK_ORDER } from './tracks.js';
 import { World, applyLighting, makeSky } from './world.js';
-import { buildCar, updateCarMesh, setCarOpacity, setHeadlights } from './carmesh.js';
+import { buildCar, updateCarMesh, setCarOpacity, setHeadlights, placeStaticCar } from './carmesh.js';
 import { SkidMarks, Smoke } from './fx.js';
 import { CameraRig, MODE_LABEL } from './camera.js';
 import { Input } from './input.js';
@@ -13,13 +14,13 @@ import { HUD } from './hud.js';
 import { LapRecorder, GhostPlayer, PaceCar, Best } from './ghost.js';
 import { Audio } from './audio.js';
 import { buildCity } from './city.js';
-import { autoDrive } from './driver.js';
+import { autoDrive, AUTO_AIDS } from './driver.js';
 
 const SKY_CYCLE = ['sunset', 'noon', 'dawn', 'night'];
 const MS = 2.23694;
 
 const S = {
-  track: 'harbor', carId: 'silhouette', unitMph: true,
+  track: 'harbor', carId: 'hachi', unitMph: true,
   stability: 0.35, showLine: true, showBoards: true,
   ghostOn: true, paceOn: false, pace: 0.85, auto: false, frozen: false,
   hudOn: true, vertical: false, skyIdx: 0, skyChosen: false, running: false,
@@ -41,7 +42,8 @@ const input = new Input(renderer.domElement);
 const hud = new HUD(document.getElementById('hud'));
 const audio = new Audio();
 
-const car = new Car(S.carId);
+const car = new Car(S.carId, PRESETS);
+const env = { terrain: null, surfaceAt: (x, z) => model.surfaceAt(x, z) };
 let carMesh, ghostMesh, paceMesh, world, model, skyMesh, lights;
 let skid, smoke;
 const modelCache = new Map();
@@ -66,6 +68,7 @@ function loadTrack(id) {
   S.track = id;
   clearScene();
   model = getModel(id);
+  env.terrain = model.terrain;
   if (!S.skyChosen) S.skyIdx = Math.max(0, SKY_CYCLE.indexOf(model.def.sky));
   const skyKey = SKY_CYCLE[S.skyIdx] || model.def.sky;
   skyMesh = makeSky(scene, skyKey);
@@ -102,7 +105,7 @@ let sectorTimes = [null, null, null], bestSectors = [null, null, null];
 let sectorIdx = 0, prevDist = 0, started = false, distTravelled = 0;
 const rec = new LapRecorder();
 let ghost = null, pace = null;
-let driftHold = 0, driftTotal = 0, bestHold = 0, stuckT = 0;
+let driftHold = 0, driftTotal = 0, bestHold = 0, stuckT = 0, wasLanding = false, airToast = false;
 
 function loadBest() {
   const b = Best.get(S.track, S.carId);
@@ -123,8 +126,8 @@ function resetCar(toStart) {
     p = m.samples[nr.i];
   }
   yaw = Math.atan2(p.tx, p.tz);
-  car.reset(p.x, p.z, yaw, p.y);
-  car.y = p.y;
+  car.reset(p.x, p.z, yaw, model.heightAt(p.x, p.z));
+  for (let i = 0; i < 90; i++) car.step(1 / 120, { throttle: 0, brake: 1, steer: 0, handbrake: 0 }, env, S.stability);
   lap = 0; started = false; prevDist = p.s; distTravelled = 0;
   sectorTimes = [null, null, null]; sectorIdx = 0;
   rec.reset();
@@ -207,11 +210,8 @@ function frame() {
     acc += dt;
     let steps = 0;
     while (acc >= STEP && steps < 8) {
-      const nr = model.nearest(car.x, car.z);
-      const surf = model.surfaceAt(car.x, car.z, nr);
-      car.step(STEP, inp, surf, S.stability);
+      car.step(STEP, inp, env, S.auto ? AUTO_AIDS : S.stability);
       if (model.collide) model.collide(car);
-      car.y = model.heightAt(car.x, car.z, model.nearest(car.x, car.z));
       acc -= STEP; steps++;
     }
     updateTiming(dt);
@@ -236,17 +236,20 @@ function frame() {
   ghostMesh.visible = S.ghostOn && ghost && ghost.valid && started;
   if (ghostMesh.visible) {
     const g = ghost.at(rec.t);
-    if (g) { ghostMesh.position.set(g.x, g.y, g.z); ghostMesh.rotation.set(0, g.yaw, 0); }
+    if (g) placeStaticCar(ghostMesh, g.x, g.y, g.z, g.yaw);
     else ghostMesh.visible = false;
   }
   paceMesh.visible = S.paceOn && model.closed;
   if (paceMesh.visible && !S.frozen) {
     pace.pace = S.pace;
     pace.step(dt);
-    paceMesh.position.set(pace.x, pace.y, pace.z);
-    paceMesh.rotation.set(0, pace.yaw, 0);
+    placeStaticCar(paceMesh, pace.x, model.heightAt(pace.x, pace.z), pace.z, pace.yaw);
   }
 
+  if (car.landing > 0.25 && !wasLanding) rig.kick(car.landing * 0.7);
+  wasLanding = car.landing > 0.25;
+  if (car.airborne && car.airTime > 0.35 && !airToast) { airToast = true; }
+  if (!car.airborne && airToast) { airToast = false; if (car.bestAir > 0.6) hud.toast('AIR  ' + car.bestAir.toFixed(2) + 's', 1200); }
   rig.update(dt, car, input.mouse);
   if (skyMesh) skyMesh.position.copy(camera.position);
   if (lights) {
@@ -262,7 +265,7 @@ function frame() {
   hud.update(dt, {
     speedDisplay: car.speed * (S.unitMph ? MS : 3.6),
     unit: S.unitMph ? 'MPH' : 'KM/H',
-    gear: car.gear, reverse: car.u < -0.4,
+    gear: car.gear, reverse: car.reversing,
     rpm: car.rpm / car.p.redline,
     lap: started ? rec.t : lastLap, best: bestTime, delta: gDelta,
     sectors: sectorTimes.map((t, i) => ({
@@ -270,7 +273,7 @@ function frame() {
     })),
     trackName: model.def.name, carName: car.p.label,
     aids: aidsLabel(),
-    driftAngle: car.driftAngle, driftHold, grip: Math.min(car.rearSlide / 22, 1),
+    driftAngle: car.driftAngle, driftHold, grip: Math.min(car.rearSlide / 16, 1), air: car.airborne,
     throttle: inp.throttle, brake: inp.brake, steer: inp.steer,
     carX: car.x, carZ: car.z, carYaw: car.yaw,
     ghost: ghostMesh.visible ? ghostMesh.position : null,
@@ -298,18 +301,21 @@ function deltaToGhost() {
 function emitFx(dt, surf) {
   const marks = surf.grip > 0.75;
   for (const [front, right] of [[false, false], [false, true], [true, false], [true, true]]) {
-    const w = car.wheelPos(front, right);
-    const slide = front ? car.frontSlide : car.rearSlide;
+    const pw = car.wheels[(front ? 0 : 2) + (right ? 1 : 0)];
+    const w = { x: pw.x, z: pw.z };
+    const slide = pw.contact ? pw.slide : 0;
     const key = (front ? 'f' : 'r') + (right ? 'R' : 'L');
-    const inten = Math.min(Math.max(slide - 3.2, 0) / 11, 1);
-    const y = model.heightAt(w.x, w.z);
+    // rubber comes off when the contact patch is actually scrubbing at speed —
+    // a launch chirp is a chirp, not a cloud
+    const inten = Math.min(Math.max(slide - 3.5, 0) / 12, 1) * Math.min(1, Math.max(0, (car.speed - 3) / 8));
+    const y = pw.ground;
     if (marks) skid.addPoint(key, w.x, y, w.z, Math.cos(car.yaw), -Math.sin(car.yaw), inten, 0.16);
-    if (inten > 0.22 && Math.random() < inten * 0.9) {
+    if (inten > 0.3 && Math.random() < inten * 0.45) {
       const col = marks ? [0.88, 0.88, 0.9] : [0.78, 0.68, 0.5];
-      smoke.emit(w.x, y, w.z, -car.vx * 0.2, -car.vz * 0.2, inten, col);
+      smoke.emit(w.x, y, w.z, -car.vx * 0.2, -car.vz * 0.2, inten * 0.6, col);
     }
   }
-  if (car.speed > 6 && surf.grip < 0.7 && Math.random() < 0.5) {
+  if (car.speed > 6 && surf.grip < 0.7 && Math.random() < 0.3) {
     smoke.emit(car.x, car.y, car.z, -car.vx * 0.1, -car.vz * 0.1, 0.4, [0.74, 0.64, 0.47]);
   }
 }
@@ -322,7 +328,7 @@ function aidsLabel() {
   if (S.paceOn) bits.push('PACE ' + Math.round(S.pace * 100) + '%');
   if (S.auto) bits.push('AUTO');
   if (S.frozen) bits.push('FROZEN');
-  bits.push('GRIP ' + Math.round(S.stability * 100) + '%');
+  bits.push('AIDS ' + Math.round(S.stability * 100) + '%');
   bits.push(MODE_LABEL[rig.mode]);
   return bits.join(' · ');
 }
@@ -338,8 +344,8 @@ function handleKeys() {
   if (input.tapped('p')) { S.paceOn = !S.paceOn; if (S.paceOn) pace.reset(model.nearest(car.x, car.z).p.s + 40); hud.toast('PACE CAR ' + (S.paceOn ? 'ON' : 'OFF'), 1000); }
   if (input.tapped('[')) { S.pace = Math.max(0.4, S.pace - 0.05); hud.toast('PACE ' + Math.round(S.pace * 100) + '%', 900); }
   if (input.tapped(']')) { S.pace = Math.min(1.05, S.pace + 0.05); hud.toast('PACE ' + Math.round(S.pace * 100) + '%', 900); }
-  if (input.tapped(',')) { S.stability = Math.max(0, S.stability - 0.1); hud.toast('GRIP ASSIST ' + Math.round(S.stability * 100) + '%', 1000); }
-  if (input.tapped('.')) { S.stability = Math.min(1, S.stability + 0.1); hud.toast('GRIP ASSIST ' + Math.round(S.stability * 100) + '%', 1000); }
+  if (input.tapped(',')) { S.stability = Math.max(0, S.stability - 0.1); hud.toast('AIDS ' + Math.round(S.stability * 100) + '%', 1000); }
+  if (input.tapped('.')) { S.stability = Math.min(1, S.stability + 0.1); hud.toast('AIDS ' + Math.round(S.stability * 100) + '%', 1000); }
   if (input.tapped('z')) { S.auto = !S.auto; hud.toast(S.auto ? 'AUTOPILOT — sit back' : 'AUTOPILOT OFF', 1400); }
   if (input.tapped('f')) { S.frozen = !S.frozen; if (S.frozen) rig.mode = 'orbit'; hud.toast(S.frozen ? 'FROZEN — drag to orbit' : 'ROLLING', 1200); }
   if (input.tapped('r')) resetCar(false);
@@ -378,8 +384,12 @@ function buildMenu() {
     buildMenu();
   };
   const cw = document.getElementById('carList');
-  cw.innerHTML = Object.entries(PRESETS).map(([id, p]) =>
-    `<button class="card ${id === S.carId ? 'sel' : ''}" data-car="${id}"><b>${p.label}</b><span>${p.blurb}</span></button>`).join('');
+  cw.innerHTML = Object.keys(TIERS).map(tier =>
+    `<div class="tier"><h3>${TIERS[tier]}</h3><div class="list">` +
+    CAR_ORDER.filter(id => PRESETS[id].tier === tier).map(id => {
+      const p = PRESETS[id];
+      return `<button class="card ${id === S.carId ? 'sel' : ''}" data-car="${id}"><b>${p.label}</b><span>${p.blurb}</span></button>`;
+    }).join('') + '</div></div>').join('');
   cw.onclick = e => {
     const b = e.target.closest('[data-car]');
     if (!b) return;

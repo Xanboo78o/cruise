@@ -82,6 +82,10 @@ body.vertical #hud { left: 50%; transform: translateX(-50%); width: min(100vw, 5
 }
 #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
+.tier { margin-bottom: 8px; }
+.tier h3 { font-size: 9px; letter-spacing: 3px; color: var(--dim); margin: 6px 0 5px; font-weight: 600; }
+#hud.air #speed { color: #ffd98a; }
+
 /* --------------------------------------------------------------- menu */
 #menu {
   position: fixed; inset: 0; z-index: 20; overflow: auto;

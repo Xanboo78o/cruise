@@ -96,6 +96,7 @@ export class HUD {
     e.driftBar.classList.toggle('hot', ang > 32);
     e.driftHold.textContent = s.driftHold > 0.4 ? s.driftHold.toFixed(1) + 's' : '';
     e.gripBar.style.transform = `scaleX(${Math.min(s.grip, 1)})`;
+    this.root.classList.toggle('air', !!s.air);
 
     if (this.toastT > 0) {
       this.toastT -= dt;
@@ -137,7 +138,7 @@ export class HUD {
     c.beginPath();
     for (let k = 0; k < n; k++) {
       const x = (k / (n - 1)) * w;
-      const y = h / 2 - this.history[k][2] * (h / 2 - 3);
+      const y = h / 2 + this.history[k][2] * (h / 2 - 3);      // screen-right is up; sim-right is the mirror
       k ? c.lineTo(x, y) : c.moveTo(x, y);
     }
     c.stroke();

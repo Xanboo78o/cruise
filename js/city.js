@@ -4,6 +4,7 @@
 
 import * as THREE from 'three';
 import { TrackModel, SURFACES } from './track.js';
+import { FlatTerrain } from './terrain.js';
 import { SKIES } from './world.js';
 
 const p = (x, z, y = 0) => ({ x, z, y });
@@ -93,8 +94,8 @@ const CIRCUIT = {
 
 const CITY_SURF = {
   road: SURFACES.road,
-  walk: { grip: 0.74, drag: 1.5, accel: 0.7, name: 'pavement' },
-  lot:  { grip: 0.62, drag: 1.7, accel: 0.6, name: 'lot' },
+  walk: { grip: 0.78, drag: 1.5, accel: 0.7, bump: 0.03, name: 'pavement' },
+  lot:  { grip: 0.66, drag: 1.7, accel: 0.6, bump: 0.06, name: 'lot' },
   grass: SURFACES.grass,
 };
 
@@ -112,6 +113,7 @@ class CityModel extends TrackModel {
     this.city = { roads: ROADS, buildings: BUILDINGS, pad: PAD };
     this.bounds = { minX: -420, maxX: 400, minZ: -290, maxZ: 250 };
     this.buildMask();
+    this.terrain = new FlatTerrain(0);
   }
 
   // 3 m grid: 0 lot, 1 pavement, 2 road. Cheap to build, O(1) to read.
@@ -152,7 +154,7 @@ class CityModel extends TrackModel {
     return { ...s, slope: 0 };
   }
 
-  heightAt() { return 0; }
+  heightAt(x, z) { return this.terrain.height(x, z); }
 
   // push the car out of buildings — cheap AABB, no bounce, just a stop
   collide(car) {

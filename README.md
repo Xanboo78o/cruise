@@ -80,45 +80,72 @@ clean laps forever. `N` for night, `C` to change camera while it drives.
 
 ## The cars
 
-**SILHOUETTE** — RWD coupe, 0-60 in 3.9 s, 131 mph. Rear grip is deliberately
-lower than front, so it rotates. The one to learn on.
-**KEI** — 780 kg, 92 Nm, 78 mph. Never has enough power to get you out of trouble,
-which makes carrying speed the whole game.
-**GT** — 1420 kg, 480 Nm, planted. Best for brake-point drills, because it does
-the same thing every time.
+Bodies are Kenney's CC0 Car Kit (`assets/models`, license inside). The physics
+takes wheelbase and tyre size *from the model*, so the wheels sit in the arches.
+
+**Serious** — HACHI (RWD drift hatch, the one to learn on) · GT (heavy, planted,
+repeatable) · RALLY (AWD, long travel, gravel-happy) · FORMULA (open wheels,
+real downforce, 2.2 g brakes) · HYPER (AWD, absurd, not a drift car)
+**Fun** — MUSCLE (all torque, soft, tank-slappers on request) · KART (someone is
+driving it, no suspension, 190 kg) · TAXI (front-drive, soft, somewhere to be)
+**Silly** — PICKUP (lifted, leans like a boat) · LIMO (5 m wheelbase, turning circle
+of a ship) · AMBULANCE (2.5 t, CG a metre up) · VAN (front-drive, full of boxes)
+
+Every car is authored in plain terms in `js/presets.js` — mass, CG height, ride
+frequency, damping, grip front/rear, engine, gears, drive — and `build()` turns
+that into spring rates, dampers, inertias and brake torque.
 
 ## How it drives
 
-Bicycle model — one front tyre, one rear — with slip angles through a simplified
-Pacejka curve that peaks around 8° and then falls away. That fall-off is why a
-drift can sit at a steady angle instead of snapping. Longitudinal weight transfer
-means braking loads the front and frees the rear (trail brake and it will rotate),
-and the rear tyre has a friction circle, so throttle spends grip that cornering
-was using — stamp on it mid-corner and the tail steps out. Engine torque goes
-through real gear ratios, so the gearbox matters.
+Four wheels, four springs, four contact patches. The body is a sprung mass with
+heave, pitch and roll; each corner has a spring, a bump/rebound damper, an
+anti-roll bar and a bump stop, standing on the same terrain height field the
+visual mesh is built from. Load transfer isn't a formula — it falls out of the
+springs — so a crest unloads the car, a dip loads it, and the wheels leave the
+ground when the maths says they do. Landings land on the springs.
 
-Physics runs at 240 Hz in substeps under a 120 Hz fixed loop.
+Each tyre gets its own slip angle and slip ratio through a combined-slip magic
+formula that peaks at ~0.2 and falls to 0.8 at a full slide (that fall-off is
+why a drift holds). Load sensitivity, so a loaded tyre makes less than twice the
+grip. Engine torque through real gear ratios and a limited-slip diff; brakes with
+per-wheel EBD, ABS and traction control when the aids are on. Ackermann steering.
+
+Physics runs at 300 Hz in substeps under a 120 Hz fixed loop. No collisions with
+buildings on the tracks, no rollovers, nothing breaks — the city stops you at the
+walls and that's it.
+
+## What the aids slider does (`,` `.`)
+
+0% is raw. Above that: ABS, traction control, engine-drag control, and a yaw
+damper scaled to each car's inertia (~1 s time constant at 100%). The autopilot
+always drives with everything on.
 
 ## Tools
 
 ```
-node tools/validate.mjs    # track geometry: length, tightest radius, self-intersections, ASCII map
-node tools/sim.mjs 0.9     # drive every track with every car, headless, no browser
+node tools/validate.mjs             # track geometry: length, tightest radius, self-intersections, ASCII map
+node tools/sim.mjs 0.85             # every car on every track, headless — the gate is 36/36 clean
+node tools/sim.mjs 0.85 gt canyon   # one combo
+node tools/trace.mjs gt canyon      # half-second timeline; flags the first OFF / SPIN with the tyre numbers
 ```
-`sim.mjs` is the one that matters: it reports off-road percentage and worst
-lateral error per car per track. If a change to the physics or a track breaks
-something, that goes non-zero.
+`sim.mjs` is the one that matters: it reports off-road percentage, worst lateral
+error, spins and air time per car per track. If a change to the physics, a car
+or a track breaks something, that goes non-zero. `trace.mjs` is how you find out
+*why* — it turned "GT DNF on the canyon" into "weaving at 1 g on the straight,
+so the friction circle refused to brake" in one run.
 
 ## Layout
 
 ```
-js/car.js      physics — tyre model, weight transfer, gearbox
+js/car.js      physics — four-wheel sprung model, tyres, drivetrain, brakes
+js/presets.js  the garage — every car in plain terms, built into physics constants
+js/terrain.js  ONE height field for the visual terrain and the wheels
 js/track.js    spline, racing line solver, speed profile, surface lookup
 js/tracks.js   the hand-drawn layouts (every corner is a radius I picked)
 js/city.js     the free-roam city and its street circuit
 js/world.js    terrain, road, kerbs, props, the practice overlays
 js/driver.js   the autopilot — pure pursuit + a brake-distance solver
-js/carmesh.js  the low-poly car
+js/carmesh.js  Kenney GLB bodies, wheels re-hung on the physics
 js/fx.js       skid marks and tyre smoke
 js/camera.js   the camera rigs
 js/hud.js      timing, telemetry, minimap

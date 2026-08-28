@@ -63,6 +63,7 @@ const canyon = {
   width: 11,
   startIndex: 0,
   sky: 'dawn',
+  rough: 1.0,                              // it's a mountain, let it be one
   profile: { vMax: 46, aLat: 11.4 },      // mountain road, not a runway
   pts: [
     p(-190, 258, 112), p(-120, 252, 108), p(-50, 262, 102), p(20, 252, 96), p(84, 250, 92),

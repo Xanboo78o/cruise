@@ -39,7 +39,11 @@ export class Input {
     const k = this.keys;
     let throttle = (k.has('w') || k.has('arrowup')) ? 1 : 0;
     let brake = (k.has('s') || k.has('arrowdown')) ? 1 : 0;
-    let steer = ((k.has('d') || k.has('arrowright')) ? 1 : 0) - ((k.has('a') || k.has('arrowleft')) ? 1 : 0);
+    // NOTE the sign: the physics body frame calls +x "right", but with Y up and
+    // the camera looking down +z that side is on the LEFT of the screen. So D
+    // (screen right) is -1 in the sim's terms. Every steer value past this point
+    // is in sim terms; only this file and the HUD trace know about the screen.
+    let steer = ((k.has('a') || k.has('arrowleft')) ? 1 : 0) - ((k.has('d') || k.has('arrowright')) ? 1 : 0);
     let handbrake = k.has(' ') ? 1 : 0;
     let usingPad = false;
 
@@ -53,7 +57,7 @@ export class Input {
       if (Math.abs(ax) > 0.08 || rt > 0.03 || lt > 0.03 || hb) usingPad = true;
       if (usingPad) {
         const dz = 0.08;
-        steer = Math.abs(ax) < dz ? 0 : (ax - Math.sign(ax) * dz) / (1 - dz);
+        steer = Math.abs(ax) < dz ? 0 : -(ax - Math.sign(ax) * dz) / (1 - dz);   // same mirror as the keys
         throttle = rt; brake = lt; handbrake = hb;
         this.pad = p;
       }
