@@ -161,12 +161,12 @@ body.vertical #hud { left: 50%; transform: translateX(-50%); width: min(100vw, 5
 .dot.serious { background: #7ea6ff; } .dot.fun { background: #ffd98a; } .dot.silly { background: #ff8fb0; }
 .dot.sel { transform: scale(1.5); box-shadow: 0 0 0 2px #fff; }
 
-.go {
+button.go {
   font: inherit; font-size: 18px; font-weight: 800; letter-spacing: 6px; cursor: pointer;
   padding: 16px 54px; border-radius: 14px; border: none; color: #140d10;
   background: linear-gradient(96deg, #ff9a5c, #ff6b8f); box-shadow: 0 10px 40px rgba(255,120,90,0.35);
 }
-.go:hover { filter: brightness(1.08); }
+button.go:hover { filter: brightness(1.08); }
 
 #crash {
   display: none; position: fixed; left: 0; right: 0; bottom: 0; z-index: 99;
