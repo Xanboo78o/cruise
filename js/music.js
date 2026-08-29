@@ -61,6 +61,7 @@ const DEFAULT_MIX = {
   sub:    { g: 0.45, duck: 1 }, bass808: { g: 0.5, duck: 1 }, hbass: { g: 0.55, duck: 1 }, slap: { g: 0.7, duck: 0.3 },
   stab:   { g: 0.55, duck: 1, send: { room: 0.3, delay: 0.15 }, crush: 11, lp: 9000 },
   pluck:  { g: 0.6, duck: 0.7, send: { room: 0.25, delay: 0.22 }, crush: 9, lp: 7500, chorus: true },
+  m1:     { g: 0.6, duck: 0.7, send: { room: 0.28, delay: 0.18 }, crush: 10, lp: 8000, chorus: true },
   rhodes: { g: 0.5, duck: 0.3, send: { room: 0.3 } }, organ: { g: 0.35, pan: 0.25, send: { room: 0.25 } },
   brass:  { g: 0.5, send: { room: 0.3 } }, strings: { g: 0.35, send: { hall: 0.5 } }, pad: { g: 0.35, duck: 1, send: { hall: 0.5 } },
   lead:   { g: 0.45, duck: 0.6, send: { delay: 0.3, hall: 0.2 } }, bell: { g: 0.45, send: { hall: 0.6, delay: 0.2 } }, steel: { g: 0.45, pan: 0.3, send: { room: 0.35 } },
@@ -336,6 +337,20 @@ export class Music {
       this.osc('sawtooth', f, t, end, -7).connect(flt); this.osc('sawtooth', f, t, end, 7).connect(flt);
       const sq = this.osc('square', f * 2, t, end), sg = this.gain(0.18); sq.connect(sg).connect(flt);
     }
+  }
+  m1(t, v, o) {                                       // the house organ (M1 'Organ 2'): drawbar partials, a percussive 2nd, a click
+    const ch = this.channel('m1', this.song).inp, notes = o.notes || [o.note], dur = Math.min(o.dur, o.maxDur ?? 0.3), g = this.gain(0);
+    let tgt = g; if (o.cut) { const f = this.lpf(o.cut, 1); f.connect(g); tgt = f; }
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(v * 0.55 / Math.sqrt(notes.length), t + 0.004);
+    g.gain.setValueAtTime(v * 0.55 / Math.sqrt(notes.length), t + dur); g.gain.exponentialRampToValueAtTime(0.0001, t + dur + 0.03);
+    g.connect(ch);
+    const end = t + dur + 0.06;
+    for (const n of notes) {
+      const f = freq(n);
+      for (const [r, a] of [[1, 1], [2, 0.75], [3, 0.55], [4, 0.4], [6, 0.22], [8, 0.14]]) { const os = this.osc('sine', f * r, t, end), og = this.gain(a); os.connect(og).connect(tgt); }
+      const perc = this.osc('sine', f * 3, t, t + 0.25), pg = this.gain(0); pg.gain.setValueAtTime(0.9, t); pg.gain.exponentialRampToValueAtTime(0.001, t + 0.18); perc.connect(pg).connect(tgt);
+    }
+    const n = this.noiseSrc(t, t + 0.01), nf = this.bp(2600, 1.2), ng = this.gain(0); ng.gain.setValueAtTime(v * 0.2, t); ng.gain.exponentialRampToValueAtTime(0.001, t + 0.006); n.connect(nf).connect(ng).connect(ch);
   }
   rhodes(t, v, o) {                                   // DX-style electric piano: FM bark + a tine
     const ch = this.channel('rhodes', this.song).inp, notes = o.notes || [o.note], dur = o.dur;

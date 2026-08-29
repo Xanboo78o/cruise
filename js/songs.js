@@ -57,27 +57,34 @@ const line = (inst, L, ev, o = {}) => N(inst, ev.map(([s, n, len, v, ex]) => [s,
 // on a dotted-eighth bounce across two bars, on a bright PlayStation-era
 // pluck, in a major key. No distortion anywhere: the energy is the bounce.
 // =============================================================================
-const RIFF_STEPS = [0, 3, 6, 9, 12, 15, 18, 21, 24, 27];
-const RIFF_CH = ['Abmaj7', 'Abmaj7', 'Bbm7', 'Bbm7', 'Bbm7', 'Abmaj7', 'Abmaj7', 'Cm7', 'Cm7', 'Cm7'];   // I · ii · I · iii
-const RIFF_TOP = ['Ab5', 'Ab5', 'Bb5', 'Bb5', 'Bb5', 'Ab5', 'Ab5', 'C6', 'C6', 'C6'];
-const riffChordAt = st => { let c = RIFF_CH[0]; for (let i = 0; i < RIFF_STEPS.length; i++) if (RIFF_STEPS[i] <= st) c = RIFF_CH[i]; return c; };
-const riffPluck = (o = {}) => N('pluck', RIFF_STEPS.map((st, i) => [st, [midi(RIFF_TOP[i]), ...voice(RIFF_CH[i], 68)], 2, o.vel ?? 0.95, o.ev]), 32, o.part || {});
-const riffTop = (o = {}) => N(o.inst || 'pluck', RIFF_STEPS.map((st, i) => [st, o.inst === 'lead' ? midi(RIFF_TOP[i]) + (o.tr || 0) : [midi(RIFF_TOP[i]) + (o.tr || 0)], 2, o.vel ?? 0.8, o.ev]), 32, o.part || {});
+// The riff, Gypsy Woman shape: two on the mid chord, three on the low one, two
+// mid, three lower — ♭3 · 1 · ♭3 · ♭7 of the minor, as organ triads in the mid
+// register, in a dun-dun · dun-dun-dun eighth-note bounce.
+const RIFF_STEPS = [0, 2, 6, 8, 10, 16, 18, 22, 24, 26];
+const RIFF_MID = ['C4', 'F4', 'Ab4'].map(midi), RIFF_LOW = ['Bb3', 'Db4', 'F4'].map(midi), RIFF_LOWER = ['G3', 'Bb3', 'Eb4'].map(midi);
+const RIFF_NOTES = [RIFF_MID, RIFF_MID, RIFF_LOW, RIFF_LOW, RIFF_LOW, RIFF_MID, RIFF_MID, RIFF_LOWER, RIFF_LOWER, RIFF_LOWER];
+const RIFF_ROOT = ['F2', 'F2', 'Bb2', 'Bb2', 'Bb2', 'F2', 'F2', 'Eb2', 'Eb2', 'Eb2'].map(midi);
+const RIFF_TOPN = RIFF_NOTES.map(n => n[2]);
+const riffRootAt = st => { let r = RIFF_ROOT[0]; for (let i = 0; i < RIFF_STEPS.length; i++) if (RIFF_STEPS[i] <= st) r = RIFF_ROOT[i]; return r; };
+const riffChordAt = st => { let c = RIFF_NOTES[0]; for (let i = 0; i < RIFF_STEPS.length; i++) if (RIFF_STEPS[i] <= st) c = RIFF_NOTES[i]; return c; };
+const riffPluck = (o = {}) => N('m1', RIFF_STEPS.map((st, i) => [st, RIFF_NOTES[i], 2, o.vel ?? 0.95, o.ev]), 32, o.part || {});
+const riffTop = (o = {}) => N(o.inst || 'pluck', RIFF_STEPS.map((st, i) => [st, o.inst === 'lead' ? RIFF_TOPN[i] + (o.tr || 0) : [RIFF_TOPN[i] + (o.tr || 0)], 2, o.vel ?? 0.8, o.ev]), 32, o.part || {});
 // the riff over `bars` bars with the filter opening hit by hit — the build
 const riffSweep = (bars, from, to, vel = 0.85) => {
   const ev = [], n = bars / 2 * RIFF_STEPS.length; let k = 0;
-  for (let b2 = 0; b2 < bars / 2; b2++) RIFF_STEPS.forEach((st, i) => { const u = k++ / n; ev.push([b2 * 32 + st, [midi(RIFF_TOP[i]), ...voice(RIFF_CH[i], 68)], 2, vel * (0.7 + 0.3 * u), { cut: from * Math.pow(to / from, u), floor: 500 + 900 * u }]); });
-  return N('pluck', ev, bars * 16);
+  for (let b2 = 0; b2 < bars / 2; b2++) RIFF_STEPS.forEach((st, i) => { const u = k++ / n; ev.push([b2 * 32 + st, RIFF_NOTES[i], 2, vel * (0.7 + 0.3 * u), { cut: from * Math.pow(to / from, u) }]); });
+  return N('m1', ev, bars * 16);
 };
 const BOUNCE_O = { cut: 1100, q: 2, fdec: 0.1 };
-const bounce = (o = {}) => N('hbass', [2, 6, 10, 14, 18, 22, 26, 30].map(st => [st, root(riffChordAt(st), 2), 1, o.vel ?? 0.9]), 32, { o: BOUNCE_O, ...(o.part || {}) });
-const downSub = () => N('sub', [0, 16].map(st => [st, root(riffChordAt(st), 2), 2, 0.7]), 32);
-const offOrgan = () => N('organ', [2, 6, 10, 14, 18, 22, 26, 30].map(st => [st, voice(riffChordAt(st), 64), 1, 0.7]), 32);
+const bounce = (o = {}) => N('hbass', [2, 6, 10, 14, 18, 22, 26, 30].map(st => [st, riffRootAt(st), 1, o.vel ?? 0.9]), 32, { o: BOUNCE_O, ...(o.part || {}) });
+const downSub = () => N('sub', [0, 16].map(st => [st, riffRootAt(st), 2, 0.7]), 32);
+const offOrgan = () => N('organ', [2, 6, 10, 14, 18, 22, 26, 30].map(st => [st, riffChordAt(st).map(n => n + 12), 1, 0.7]), 32);
 const AB = ['Fm7', 'Dbmaj7', 'Abmaj7', 'Eb'];                // vi IV I V under the melody sections
 const HOUSE_KICK = { f0: 180, f1: 50, sweep: 0.05, dec: 0.22, drive: 1.3, click: 0.6 };
 const B8 = (bar7, bar8) => '................|'.repeat(6) + bar7 + '|' + bar8;   // an 8-bar string with only the last two bars filled
 const gb = {
   kick: X('kick', 'x...x...x...x...', { o: HOUSE_KICK }),
+  hatSoft: X('hat', 'x-o-x-o-x-o-x-o-', { vel: 0.55, o: { dec: 0.045 } }),
   kickIn: X('kick', '................|'.repeat(4) + 'x...x...x...x...|'.repeat(3) + 'x...x...x...x...', { o: HOUSE_KICK }),
   clap: X('clap', '....x.......x...', { vel: 0.9 }),
   snare: X('snare', '....x.......x...', { vel: 0.5, o: { dec: 0.14, tone: 195, snap: 0.8, body: 0.5 } }),
@@ -92,8 +99,8 @@ const gb = {
   riser: X('riser', 'x...............|'.repeat(7) + '................', { vel: 0.4, o: { dur: 60 / 132 * 32 } }),
   flutter: X('flutter', B8('................', '............x...'), { vel: 0.6, o: { dur: 0.7 } }),
   antilag: X('antilag', B8('..............x.', '................'), { vel: 0.7, o: { n: 4 } }),
-  riff: riffPluck(), riffSoft: riffPluck({ vel: 0.6, ev: { cut: 2500, floor: 800 } }), riffBuild: riffSweep(8, 900, 9000),
-  riffHi: riffTop({ tr: 12, vel: 0.5, part: { lvl: 0.5 } }), riffLead: riffTop({ inst: 'lead', vel: 0.55, part: { lvl: 0.6 } }),
+  riff: riffPluck(), riffSoft: riffPluck({ vel: 0.38, ev: { cut: 900 } }), riffBuild: riffSweep(8, 700, 9000),
+  riffHi: riffTop({ tr: 12, vel: 0.4, part: { lvl: 0.7 } }), riffLead: riffTop({ inst: 'lead', vel: 0.5, part: { lvl: 0.6 } }),
   bass: bounce(), sub: downSub(), organ: offOrgan(),
   pad: N('strings', [[0, [midi('Ab3'), midi('Eb4'), midi('Ab4')], 32, 0.5, { pad: true }]], 32, { lvl: 0.3 }),
   choir: comp('oo', ['Abmaj7', 'Cm7'], 'x...............', 60, { len: 16, vel: 0.6, part: { lvl: 0.5, o: { a: 0.3, voices: 3 } } }),
@@ -101,10 +108,10 @@ const gb = {
 };
 const antilag = {
   id: 'antilag', station: 'groupb', name: 'ANTI-LAG', artist: 'Oo Motorsport Club', bpm: 132, key: 'Ab', swing: 0.16,
-  duck: 0.45, duckRelease: 0.2, vinyl: 0.15, drumLevel: 0.8, drumDrive: 1.3,
-  mix: { pluck: { g: 0.72 }, hbass: { g: 0.62 }, sub: { g: 0.45 }, lead: { g: 0.4 }, oochop: { g: 0.55 } },
+  duck: 0.45, duckRelease: 0.2, vinyl: 0.15, drumLevel: 0.92, drumDrive: 1.3,
+  mix: { m1: { g: 0.7 }, pluck: { g: 0.6 }, hbass: { g: 0.72 }, sub: { g: 0.52 }, lead: { g: 0.4 }, oochop: { g: 0.55 } },
   sections: [
-    { name: 'intro', bars: 8, parts: [gb.hat, gb.shaker, gb.riffSoft, gb.sub] },
+    { name: 'intro', bars: 8, parts: [gb.hatSoft, gb.shaker, gb.riffSoft, gb.sub] },
     { name: 'build', bars: 8, parts: [gb.kickIn, gb.clap, gb.hat, gb.ohat, gb.bass, gb.riffBuild, gb.riser, gb.roll, gb.antilag, gb.flutter] },
     { name: 'drop', bars: 16, drop: true, parts: [gb.crash, gb.kick, gb.clap, gb.snare, gb.hat, gb.ohat, gb.shaker, gb.rim, gb.bass, gb.sub, gb.riff, gb.riffHi, gb.cowbell] },
     { name: 'break', bars: 8, parts: [gb.hat, gb.organ, gb.pad, gb.choir, gb.chops, gb.riser, gb.roll, gb.flutter] },
@@ -133,8 +140,8 @@ const qt = {
 };
 const quattro = {
   id: 'quattro', station: 'groupb', name: 'QUATTRO', artist: 'Oo Motorsport Club', bpm: 140, key: 'Ab', swing: 0.12,
-  duck: 0.5, duckRelease: 0.18, vinyl: 0.1, drumLevel: 0.85, drumDrive: 1.4,
-  mix: { pluck: { g: 0.72 }, hbass: { g: 0.62 }, sub: { g: 0.45 }, lead: { g: 0.42 }, oochop: { g: 0.55 } },
+  duck: 0.5, duckRelease: 0.18, vinyl: 0.1, drumLevel: 0.95, drumDrive: 1.4,
+  mix: { m1: { g: 0.7 }, pluck: { g: 0.68 }, hbass: { g: 0.72 }, sub: { g: 0.52 }, lead: { g: 0.42 }, oochop: { g: 0.55 } },
   sections: [
     { name: 'intro', bars: 8, parts: [qt.hat, qt.shaker, qt.melSoft, qt.padAB, qt.subAB] },
     { name: 'build', bars: 8, parts: [qt.kickIn, qt.clap, qt.hat, qt.ohat, qt.bass, qt.riffBuild, qt.riser, qt.roll, qt.antilag, qt.flutter] },
