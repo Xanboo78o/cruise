@@ -25,7 +25,16 @@ function nearestOnPolyline(pts, x, z) {
 }
 
 export class WorldTerrain {
-  constructor(roads = ROADS) {
+  // roads: the road list; doc: the city document (base: 'flat' | 'sanoozi', terrainData: { dh, paint })
+  constructor(roads = ROADS, doc = null) {
+    this.doc = doc; this.flat = !!(doc && doc.base === 'flat');
+    // the edit grid: a height delta and a paint index per 8 m cell, shared with the document
+    this.ER = 8; this.EW = Math.ceil((WORLD.maxX - WORLD.minX) / this.ER) + 1; this.EH = Math.ceil((WORLD.maxZ - WORLD.minZ) / this.ER) + 1;
+    const td = doc && doc.terrainData;
+    this.dh = td && td.dh ? td.dh : new Float32Array(this.EW * this.EH);
+    this.paint = td && td.paint ? td.paint : new Uint8Array(this.EW * this.EH);
+    if (doc) doc.terrainData = { dh: this.dh, paint: this.paint };
+    this.dhEmpty = !td || !td.touched;
     this.roads = roads.map((r, idx) => ({ ...r, idx, T: ROAD_TYPES[r.type], seg: this.segments(r.pts) }));
     this.buildRoadGrid();
     this.bakeRoadHeights();
@@ -49,6 +58,7 @@ export class WorldTerrain {
   // ---------------------------------------------------------------- base land
   // the lie of the land before anyone built on it
   base(x, z) {
+    if (this.flat) return 8;                                  // a blank world: a plain 8 m above the sea, shape it yourself
     // distance north of the coast line (negative = at sea)
     const c = nearestOnPolyline(COAST, x, z);
     const seaward = (z - c.pz) < 0 && c.d2 > 0 ? -Math.sqrt(c.d2) : Math.sqrt(c.d2);
@@ -72,7 +82,42 @@ export class WorldTerrain {
     return y;
   }
 
+  // ------------------------------------------------------------ the edit grid
+  cellOf(x, z) { return [Math.floor((x - WORLD.minX) / this.ER), Math.floor((z - WORLD.minZ) / this.ER)]; }
+  dhAt(x, z) {
+    const fx = (x - WORLD.minX) / this.ER, fz = (z - WORLD.minZ) / this.ER;
+    const i = Math.max(0, Math.min(this.EW - 2, Math.floor(fx))), j = Math.max(0, Math.min(this.EH - 2, Math.floor(fz)));
+    const tx = Math.max(0, Math.min(1, fx - i)), tz = Math.max(0, Math.min(1, fz - j));
+    const d = this.dh, W = this.EW, a = d[j * W + i], b = d[j * W + i + 1], c = d[(j + 1) * W + i], e = d[(j + 1) * W + i + 1];
+    return (a * (1 - tx) + b * tx) * (1 - tz) + (c * (1 - tx) + e * tx) * tz;
+  }
+  paintAt(x, z) {
+    const i = Math.round((x - WORLD.minX) / this.ER), j = Math.round((z - WORLD.minZ) / this.ER);
+    if (i < 0 || j < 0 || i >= this.EW || j >= this.EH) return 0;
+    return this.paint[j * this.EW + i];
+  }
+  // a brush stroke: kind raise|lower|flatten|smooth|paint, radius r (m), amount (m or 0..1), opts { target, color }
+  brush(x, z, r, kind, amount, opts = {}) {
+    const [ci, cj] = this.cellOf(x, z), n = Math.ceil(r / this.ER) + 1;
+    const W = this.EW, d = this.dh;
+    if (kind === 'smooth') this._tmp = this._tmp || new Float32Array(W * this.EH);
+    for (let j = Math.max(1, cj - n); j <= Math.min(this.EH - 2, cj + n); j++) for (let i = Math.max(1, ci - n); i <= Math.min(W - 2, ci + n); i++) {
+      const px = WORLD.minX + i * this.ER, pz = WORLD.minZ + j * this.ER;
+      const t = Math.hypot(px - x, pz - z) / r; if (t > 1) continue;
+      const f = 1 - t * t * (3 - 2 * t), k = j * W + i;
+      if (kind === 'raise') d[k] += amount * f;
+      else if (kind === 'lower') d[k] -= amount * f;
+      else if (kind === 'flatten') { const cur = this.base(px, pz) + d[k] + (this.flat ? 0 : this.land(px, pz) - this.base(px, pz) - d[k]); d[k] += (opts.target - cur) * f * amount; }
+      else if (kind === 'smooth') { const m = (d[k - 1] + d[k + 1] + d[k - W] + d[k + W]) / 4; this._tmp[k] = d[k] + (m - d[k]) * f * amount; }
+      else if (kind === 'paint') { if (f > 0.25) this.paint[k] = opts.color | 0; }
+    }
+    if (kind === 'smooth') for (let j = Math.max(1, cj - n); j <= Math.min(this.EH - 2, cj + n); j++) for (let i = Math.max(1, ci - n); i <= Math.min(W - 2, ci + n); i++) { const px = WORLD.minX + i * this.ER, pz = WORLD.minZ + j * this.ER; if (Math.hypot(px - x, pz - z) <= r) d[j * W + i] = this._tmp[j * W + i]; }
+    if (kind !== 'paint') this.dhEmpty = false;
+    if (this.doc && this.doc.terrainData) this.doc.terrainData.touched = true;
+  }
+
   canyonCarve(x, z) {
+    if (this.flat) return 0;
     const cp = nearestOnPolyline(CANYON.path, x, z);
     const d = Math.sqrt(cp.d2);
     const seg = CANYON.path[cp.i], nxt = CANYON.path[cp.i + 1];
@@ -89,6 +134,7 @@ export class WorldTerrain {
   }
 
   districtAt(x, z) {
+    if (this.flat) return null;
     for (const d of DISTRICTS) if (x >= d.x0 && x <= d.x1 && z >= d.z0 && z <= d.z1) return d;
     return null;
   }
@@ -96,6 +142,8 @@ export class WorldTerrain {
   // land with the canyon and the district plateaus, no roads yet
   land(x, z) {
     let y = this.base(x, z);
+    if (!this.dhEmpty) y += this.dhAt(x, z);
+    if (this.flat) return y;
     const carve = this.canyonCarve(x, z);
     if (carve) y = Math.max(y + carve, 6);                 // the floor never goes under the sea
     for (const d of DISTRICTS) {
@@ -218,7 +266,7 @@ export class WorldTerrain {
     if (n && n.d <= n.road.T.w / 2) return { name: n.road.T.surf, road: n, grip: n.road.T.surf === 'gravel' ? 0.66 : n.road.T.surf === 'sand' ? 0.5 : 1, bump: n.road.T.surf === 'gravel' ? 0.05 : 0.003, drag: 1, accel: 1, slope: 0 };
     if (n && n.d <= n.road.T.w / 2 + 1.5) return { name: 'kerb', road: n, grip: 0.92, bump: 0.04, drag: 1.05, accel: 0.95, slope: 0 };
     if (land && land.fill === 'beach') return { name: 'sand', road: n, grip: 0.5, bump: 0.05, drag: 2.0, accel: 0.55, slope: 0 };
-    if (this.base(x, z) < 0.5 && !this.canyonCarve(x, z)) return { name: 'water', road: n, grip: 0.2, bump: 0.02, drag: 6, accel: 0.2, slope: 0 };
+    if (this.land(x, z) < 0.5 && !this.canyonCarve(x, z)) return { name: 'water', road: n, grip: 0.2, bump: 0.02, drag: 6, accel: 0.2, slope: 0 };
     return { name: 'forest', road: n, grip: 0.5, bump: 0.12, drag: 2.6, accel: 0.4, slope: 0 };
   }
 }

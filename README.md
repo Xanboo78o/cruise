@@ -23,30 +23,35 @@ Live at <https://xanboo78o.github.io/cruise/>.
 - A live day: the sky, fog, light and headlights follow the city clock (24 h every
   20 minutes).
 
-## The city tool
+## The map maker
 
-Press **B** in the city (or open `?edit=1`). The car stops, the camera comes off
-it, and a panel of ~100 pieces opens: houses, buildings, lights, trees, rocks,
-props, and a road tool. Click to place, shift-drag to brush (trees, lamps,
-fences), right-drag to orbit, wheel to zoom, WASD to move, R rotates, T random
-rotation, V rerolls the look, C cycles the colour, `[` `]` size, N sets the sign
-text, Delete removes, Ctrl+Z undoes. The ROADS tab draws a road point by point
-(Enter finishes, shift-click an existing road removes it) and APPLY ROADS
-rebuilds the world with them cut into the land. AUTOFILL toggles the old
-auto-generated districts off once your own city is ready.
+**`maker.html`** is the map maker on its own: a blank plain (or the old San
+Oozi base, one button), terrain brushes, a road tool, and ~100 pieces to place.
+Locally: `node tools/serve.mjs 8137` then http://localhost:8137/maker.html — it
+saves straight into `assets/city/sanoozi.json` as you work. The same tool is
+**B** inside the game.
 
-The city is a document — `assets/city/sanoozi.json`: the roads (or `null` for
-the hand-drawn ones in `spec.js`) and every placed piece. Edits autosave to
-localStorage, and to the file when the local server is running:
+- **TERRAIN** — RAISE / LOWER / FLATTEN / SMOOTH by dragging, PAINT the ground
+  (grass, sand, dirt, rock, asphalt, snow, red rock, water); `[` `]` or
+  shift+wheel for the radius, `-` `=` for strength. Lower the land below the
+  sea and you get water.
+- **ROADS** — pick a type, click points (three or more make a curve), Enter to
+  finish. Click a road to select it: drag its handles, shift-click to add a
+  point, Del on a handle removes it, pick a type to change it. **APPLY ROADS**
+  rebuilds the world with the roads cut into the sculpted land.
+- **Pieces** — click to place, shift-drag to brush, drag a selected piece to
+  move it, R / ctrl+wheel rotate, T random, V reroll, C colour, `[` `]` size,
+  N sign text, Del remove, Ctrl+Z undo. **DRIVE HERE** drops the car where
+  you're looking; B brings the maker back.
 
-    node tools/serve.mjs 8137      # serves the game + POST /save
-
-On GitHub Pages there is no server, so EXPORT downloads the file and IMPORT
-loads one; RESET DRAFT drops the local draft and reloads from the file.
-Everything placed goes through the same chunk merger as the rest of the city
-(`world/chunks.js`), one mesh per 300 m cell, so a thousand pieces cost what a
-dozen do. Pieces are recipes in `world/pieces.js` — add one there and it's in
-the panel.
+The city is a document — `assets/city/sanoozi.json`: the base terrain, the
+roads (`null` = the hand-drawn ones in `spec.js`), the terrain edits (gzipped),
+and every placed piece. It autosaves to localStorage and to the file when the
+local server is running; on GitHub Pages there is no server, so EXPORT
+downloads the file and IMPORT loads one. Everything placed goes through the
+same chunk merger as the rest of the world (`world/chunks.js`), one mesh per
+300 m cell. Pieces are recipes in `world/pieces.js` — add one there and it's in
+the panel. The world ships blank until the file says otherwise.
 
 ## Races are places
 

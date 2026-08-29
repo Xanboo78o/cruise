@@ -43,6 +43,7 @@ import { Editor } from './editor.js';
 
 const SKY_CYCLE = ['sunset', 'noon', 'dawn', 'night'];
 const MS = 2.23694;
+const MAKER = !!window.MAKER || new URLSearchParams(location.search).has('maker');   // maker.html: the map maker, nothing else
 const cityDoc = await loadCityDoc();                                       // the city as a document: roads + everything placed by hand
 
 const S = {
@@ -83,7 +84,7 @@ let population = null, peds = null, traffic = null;                       // the
 let challenges = null;                                                    // traps, drift zones, jumps, figurines, photos
 let lightsNight = false, lastDistrict = null, gateHold = 0;
 const progress = new Progress();                                           // medals, cash, cars, stickers
-const editor = new Editor({ scene, camera, renderer, input, hud, car, doc: cityDoc, getModel: () => model, getWorld: () => world, rebuild: rebuildWorld });   // the city tool (B in the city)
+const editor = new Editor({ scene, camera, renderer, input, hud, car, doc: cityDoc, getModel: () => model, getWorld: () => world, rebuild: rebuildWorld, maker: MAKER });   // the city tool (B in the city)
 const cloud = new Cloud();                                                 // …and where they go when you sign in
 let cloudSaveT = null;
 progress.onSave = data => { clearTimeout(cloudSaveT); cloudSaveT = setTimeout(() => cloud.save(data), 1500); };
@@ -188,6 +189,7 @@ function startCruise() {
   resetCar(true);
   if (model.def.id === 'sanoozi') {
     S.showLine = false; S.showBoards = false;
+    if (MAKER) { S.showLine = false; S.showBoards = false; return; }                  // the maker: just the ground and what you put on it
     if (!population) population = new Population(model.T);
     if (peds) peds.dispose();
     peds = new Peds(scene, population, model.T);
@@ -848,6 +850,11 @@ if (q.has('go') || q.has('shorts')) {
   if (q.has('map') && freeRoam) setTimeout(() => openMap(), 100);
   if (q.has('edit') && freeRoam) setTimeout(() => editor.enter(), 300);
   if (q.has('arrive') && freeRoam) { arrival = new Arrival(scene, freeRoam.T, { x: car.x, z: car.z, yaw: car.yaw }, 12); document.body.classList.add('nohud'); }
+} else if (MAKER) {
+  S.track = 'sanoozi'; S.mode = 'cruise'; S.skyIdx = 1; S.skyChosen = true;
+  document.body.classList.add('maker');
+  go();
+  setTimeout(() => editor.enter(), 200);
 } else if (q.has('screen')) {
   startAttract();
   screens.show(q.get('screen'));

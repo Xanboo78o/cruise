@@ -186,7 +186,7 @@ export class Chunks {
           acc.vert(pbx, ya, pbz, wnx, 0, wnz, c.r * ka, c.g * ka, c.b * ka, u1, va);
           acc.vert(pbx, yb, pbz, wnx, 0, wnz, c.r * kb, c.g * kb, c.b * kb, u1, vb);
           acc.vert(pax, yb, paz, wnx, 0, wnz, c.r * kb, c.g * kb, c.b * kb, u0, vb);
-          acc.idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+          acc.idx.push(base, base + 2, base + 1, base, base + 3, base + 2);   // outward: (a,c,b),(a,d,c)
         }
         uAlong += len;
       }

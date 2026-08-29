@@ -1,7 +1,42 @@
 {
- "v": 1,
- "t": 0,
- "autofill": true,
- "roads": null,
- "objects": []
+ "v": 2,
+ "t": 1788011563004,
+ "base": "flat",
+ "autofill": false,
+ "roads": [],
+ "terrain": null,
+ "objects": [
+  {
+   "k": "twostorey",
+   "x": 0,
+   "z": -790,
+   "r": 0,
+   "s": 1,
+   "seed": 1
+  },
+  {
+   "k": "villa",
+   "x": 22,
+   "z": -790,
+   "r": 30,
+   "s": 1,
+   "seed": 2
+  },
+  {
+   "k": "cornerstore",
+   "x": -24,
+   "z": -790,
+   "r": 0,
+   "s": 1,
+   "seed": 3
+  },
+  {
+   "k": "victorian",
+   "x": -4,
+   "z": -765,
+   "r": 200,
+   "s": 1,
+   "seed": 4
+  }
+ ]
 }

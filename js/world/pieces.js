@@ -260,7 +260,7 @@ export const PIECES = [
 ];
 
 export const CATS = [
-  ['houses', 'HOUSES'], ['buildings', 'BUILDINGS'], ['lights', 'LIGHTS'], ['trees', 'TREES'], ['rocks', 'ROCKS'], ['props', 'PROPS'], ['roads', 'ROADS'],
+  ['houses', 'HOUSES'], ['buildings', 'BUILDINGS'], ['lights', 'LIGHTS'], ['trees', 'TREES'], ['rocks', 'ROCKS'], ['props', 'PROPS'], ['roads', 'ROADS'], ['terrain', 'TERRAIN'],
 ];
 export const BY_ID = Object.fromEntries(PIECES.map(p => [p.id, p]));
 

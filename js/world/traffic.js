@@ -49,6 +49,7 @@ export class Traffic {
   // a new follower somewhere on a road near (x, z) but not too near
   spawnNear(x, z, env, exclude) {
     const roads = this.T.roads.filter(r => r.type !== 'sand' && r.type !== 'pier' && r.type !== 'mine' && r.type !== 'canyon');
+    if (!roads.length) return null;
     for (let tries = 0; tries < 30; tries++) {
       const r = roads[Math.floor(Math.random() * roads.length)];
       const s = Math.random() * r.L;

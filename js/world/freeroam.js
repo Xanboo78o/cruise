@@ -10,7 +10,7 @@ import { roadsFor } from './citydoc.js';
 export class FreeRoam {
   constructor(doc = null) {
     this.doc = doc;
-    this.T = new WorldTerrain(roadsFor(doc));
+    this.T = new WorldTerrain(roadsFor(doc), doc);
     this.terrain = { height: (x, z) => this.heightAt(x, z), normal: (x, z, out = {}) => this.normal(x, z, out), bump: (x, z, surf) => this.bump(x, z, surf) };
     this.def = { id: 'sanoozi', name: 'SAN OOZI', sky: 'noon', startIndex: 0, closed: false, width: 30 };
     this.closed = false;

@@ -13,6 +13,9 @@ import { CityAtlas, Chunks, GlowLayer } from './chunks.js';
 import { Q } from '../quality.js';
 
 const sm = t => { t = Math.max(0, Math.min(1, t)); return t * t * (3 - 2 * t); };
+// the map maker's paint: index → ground colour (0 = none)
+export const PAINT = [null, new THREE.Color(0x4e7a3f), new THREE.Color(0x9a9a4a), new THREE.Color(0xd9c78f), new THREE.Color(0x8a6a4a), new THREE.Color(0x8a7a66), new THREE.Color(0x4a4f58), new THREE.Color(0xe8e6e0), new THREE.Color(0xb5613f), new THREE.Color(0x2b6b8a)];
+export const PAINT_NAMES = ['NONE', 'GRASS', 'DRY GRASS', 'SAND', 'DIRT', 'ROCK', 'ASPHALT', 'SNOW', 'RED ROCK', 'WATER'];
 function hash2(x, z) { const h = Math.sin(x * 127.1 + z * 311.7) * 43758.5453; return h - Math.floor(h); }
 
 export class WorldBuilder {
@@ -24,12 +27,13 @@ export class WorldBuilder {
     this.atlas = new CityAtlas();
     this.city = new Chunks(this.group, this.atlas);
     this.glow = new GlowLayer(this.group);
+    this.doc = opts.doc || { autofill: true, objects: [] };
     this.buildTerrain();
     this.buildWater();
     this.buildRoads();
-    this.buildForest();
+    this.farChunks = [];
+    if (this.doc.autofill !== false) this.buildForest();          // the auto forest belongs to the old auto-filled world
     this.buildBeachAndPier();
-    this.doc = opts.doc || { autofill: true, objects: [] };
     // the old auto-filled districts, until the city tool has replaced them
     this.districts = this.doc.autofill !== false ? new Districts(T, this.group, this.sky === 'night', this.city, this.glow) : { walls: [] };
     this.city.finish({ shadows: Q.shadows });
@@ -70,22 +74,29 @@ export class WorldBuilder {
     const pos = new Float32Array((w + 1) * (h + 1) * 3), col = new Float32Array((w + 1) * (h + 1) * 3);
     const cGrass = new THREE.Color(0x4e7a3f), cDark = new THREE.Color(0x35592c), cRock = new THREE.Color(0x8a7a66), cSnow = new THREE.Color(0xe8e6e0);
     const cSand = new THREE.Color(0xd9c78f), cRed = new THREE.Color(0xb5613f), cFloor = new THREE.Color(0x9a7a5a), cCity = new THREE.Color(0x6c6f74);
+    const tmp = new THREE.Color();
+    this.terrainColor = (x, z, y, out = tmp) => {
+      const n = vnoise(x * 0.03, z * 0.03);
+      let c = out.copy(cGrass).lerp(cDark, n * 0.6);
+      const carve = T.canyonCarve(x, z);
+      if (carve < -1) c = out.copy(carve < -T.constructor.depth ? cFloor : cRed).lerp(cFloor, sm((-carve - 40) / 45)).lerp(cRed, n * 0.3);
+      if (y > 240) c.lerp(cRock, sm((y - 240) / 120));
+      if (y > 400) c.lerp(cSnow, sm((y - 400) / 60));
+      const d = T.districtAt(x, z);
+      if (d && d.fill === 'beach') c = out.copy(cSand).lerp(cGrass, sm((z - d.z0 - 200) / 120));
+      else if (d && (d.fill === 'towers' || d.fill === 'harbor' || d.fill === 'docks')) c = out.copy(cCity).lerp(cGrass, 0.35);
+      else if (d && d.fill === 'houses') c = out.copy(cGrass).lerp(cSand, 0.15);
+      const pt = T.paintAt(x, z);
+      if (pt && PAINT[pt]) c = out.copy(PAINT[pt]).lerp(cDark, n * 0.25);
+      if (y < 1.5 && !pt) c = out.copy(cSand);
+      return c;
+    };
     let i = 0;
     for (let j = 0; j <= h; j++) for (let k = 0; k <= w; k++) {
       const x = WORLD.minX + k * cell, z = WORLD.minZ + j * cell;
       const y = T.height(x, z);
       pos[i * 3] = x; pos[i * 3 + 1] = y; pos[i * 3 + 2] = z;
-      const n = vnoise(x * 0.03, z * 0.03);
-      let c = cGrass.clone().lerp(cDark, n * 0.6);
-      const carve = T.canyonCarve(x, z);
-      if (carve < -1) c = (carve < -T.constructor.depth ? cFloor : cRed).clone().lerp(cFloor, sm((-carve - 40) / 45)).lerp(cRed, n * 0.3);
-      if (y > 240) c.lerp(cRock, sm((y - 240) / 120));
-      if (y > 400) c.lerp(cSnow, sm((y - 400) / 60));
-      const d = T.districtAt(x, z);
-      if (d && d.fill === 'beach') c = cSand.clone().lerp(cGrass, sm((z - d.z0 - 200) / 120));
-      else if (d && (d.fill === 'towers' || d.fill === 'harbor' || d.fill === 'docks')) c = cCity.clone().lerp(cGrass, 0.35);
-      else if (d && d.fill === 'houses') c = cGrass.clone().lerp(cSand, 0.15);
-      if (y < 1.5) c = cSand.clone();
+      const c = this.terrainColor(x, z, y);
       col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
       i++;
     }
@@ -129,10 +140,31 @@ export class WorldBuilder {
       g.setIndex(new THREE.BufferAttribute(ti, 1));
       const mesh = new THREE.Mesh(g, mat);
       mesh.receiveShadow = true;
+      mesh.userData = { tk, tj, cw, chh, cell };
       this.group.add(mesh);
       this.terrainTiles.push(mesh);
     }
     this.terrainMesh = this.terrainTiles[0];
+    this.terrainCell = cell;
+  }
+
+  // the map maker sculpted or painted within r of (x, z): move the tile vertices there
+  terrainRefresh(x, z, r) {
+    const T = this.T, cell = this.terrainCell;
+    for (const tile of this.terrainTiles) {
+      const { tk, tj, cw, chh } = tile.userData;
+      const x0 = WORLD.minX + tk * cell, z0 = WORLD.minZ + tj * cell, x1 = x0 + cw * cell, z1 = z0 + chh * cell;
+      if (x + r < x0 || x - r > x1 || z + r < z0 || z - r > z1) continue;
+      const pos = tile.geometry.attributes.position, col = tile.geometry.attributes.color;
+      let touched = false;
+      for (let j = 0; j <= chh; j++) for (let k = 0; k <= cw; k++) {
+        const vx = x0 + k * cell, vz = z0 + j * cell;
+        if (Math.abs(vx - x) > r + cell || Math.abs(vz - z) > r + cell) continue;
+        const i = j * (cw + 1) + k, y = T.height(vx, vz);
+        pos.setY(i, y); const c = this.terrainColor(vx, vz, y); col.setXYZ(i, c.r, c.g, c.b); touched = true;
+      }
+      if (touched) { pos.needsUpdate = true; col.needsUpdate = true; tile.geometry.computeVertexNormals(); tile.geometry.computeBoundingSphere(); }
+    }
   }
 
   buildWater() {

@@ -38,6 +38,9 @@ export class Population {
     };
     const homeSpots = homesIn.map(d => ({ d, spots: spotsFor(d) })).filter(h => h.spots.length);
     const workSpots = worksIn.map(d => ({ d, spots: spotsFor(d) })).filter(w => w.spots.length);
+    // a blank world (the map maker): everyone lives and works at the square until there are streets
+    if (!homeSpots.length) homeSpots.push({ d: { id: 'downtown' }, spots: [[0, -820]] });
+    if (!workSpots.length) workSpots.push({ d: { id: 'downtown' }, spots: [[40, -820]] });
     const used = new Set();
     this.list = [];
     for (let i = 0; i < count; i++) {
