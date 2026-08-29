@@ -575,6 +575,7 @@ function frame() {
     if (!S.clockHeld) S.hour = (S.hour + dt * (24 / 1200)) % 24;
     // the live day: sky, fog and light follow the clock (a race holds its own time)
     if (!worldRace && skyMesh && lights) { const s = skyForHour(S.hour); tintSky(skyMesh, lights, scene, s); if (s.night !== lightsNight) { lightsNight = s.night; setHeadlights(carMesh, s.night); if (world.setNight) world.setNight(s.night); } }
+    if (editor.active && scene.fog) { scene.fog.near *= 2.5; scene.fog.far *= 3; }   // the maker sees the whole range
     const everyone = traffic && !worldRace ? [...allCars(), ...traffic.cars] : allCars();
     if (peds) peds.update(dt, camera.position.x, camera.position.z, everyone, S.hour, worldRace ? worldRace.rc.gate : null);
     // where you are, and the gates you can roll into

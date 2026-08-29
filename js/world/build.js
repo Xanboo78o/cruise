@@ -121,7 +121,7 @@ export class WorldBuilder {
       if (s > 0.22) c.lerp(cDirt, sm((s - 0.22) / 0.2));
       if (s > 0.42) c.lerp(cGrey, sm((s - 0.42) / 0.22));
       if (dug < -3) c.lerp(dug < -25 ? cRed : cRock, sm((-dug - 3) / 14) * (0.5 + 0.5 * s));
-      const snowLine = 210 + n2 * 70;
+      const snowLine = 1500 + n2 * 300;                       // Angeles-Crest scale: snow on the high peaks only
       if (y > snowLine) c.lerp(cSnow, sm((y - snowLine) / 45) * (1 - s * 0.7));
       if (y < 1.5) c.copy(cSand); else if (y < 4.5) c.lerp(cSand, 1 - (y - 1.5) / 3);
       return c;
@@ -129,7 +129,7 @@ export class WorldBuilder {
     let i = 0;
     for (let j = 0; j <= h; j++) for (let k = 0; k <= w; k++) {
       const x = WORLD.minX + k * cell, z = WORLD.minZ + j * cell;
-      const y = T.height(x, z);
+      const y = T.ground(x, z);
       pos[i * 3] = x; pos[i * 3 + 1] = y; pos[i * 3 + 2] = z;
       const c = this.terrainColor(x, z, y);
       col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
@@ -197,7 +197,7 @@ export class WorldBuilder {
       for (let j = 0; j <= chh; j++) for (let k = 0; k <= cw; k++) {
         const vx = x0 + k * cell, vz = z0 + j * cell;
         if (Math.abs(vx - x) > r + cell || Math.abs(vz - z) > r + cell) continue;
-        const i = j * (cw + 1) + k, y = T.height(vx, vz);
+        const i = j * (cw + 1) + k, y = T.ground(vx, vz);
         pos.setY(i, y); const c = this.terrainColor(vx, vz, y); col.setXYZ(i, c.r, c.g, c.b); touched = true;
       }
       if (touched) { pos.needsUpdate = true; col.needsUpdate = true; tile.geometry.computeVertexNormals(); tile.geometry.computeBoundingSphere(); }
@@ -252,12 +252,12 @@ export class WorldBuilder {
             // the kerb's outer face is the skirt's top edge; the skirt starts at deck height so it reads as one slab
           }
         }
-        // pillars under a bridge, every 24 m
+        // one pier under a bridge every 40 m
         sincePillar += prev ? step : 0;
-        if (ry - landC > 3 && sincePillar >= 24 && r.type !== 'pier') {
+        if (ry - landC > 3 && sincePillar >= 40 && r.type !== 'pier') {
           sincePillar = 0;
-          for (const side of [-0.45, 0.45]) {
-            const cx = p.x + nx * hw * side, cz = p.z + nz * hw * side, hwid = 0.9, bottom = T.land(cx, cz) - 1.5;
+          for (const side of [0]) {
+            const cx = p.x, cz = p.z, hwid = Math.min(3, hw * 0.4), bottom = T.land(cx, cz) - 1.5;
             const a = [cx + nx * hwid + p.tx * hwid, cz + nz * hwid + p.tz * hwid], b = [cx - nx * hwid + p.tx * hwid, cz - nz * hwid + p.tz * hwid];
             const d = [cx - nx * hwid - p.tx * hwid, cz - nz * hwid - p.tz * hwid], e = [cx + nx * hwid - p.tx * hwid, cz + nz * hwid - p.tz * hwid];
             const corners = [a, b, d, e], top = [], bot = [];

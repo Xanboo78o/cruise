@@ -181,9 +181,17 @@ export class WorldTerrain {
       // the road never cuts into the land: it's the lowest profile that stays ON
       // or ABOVE the ground with a grade of at most gMax both ways — so it rides
       // the land where it can, ramps up to a cliff, and bridges over every dip
+      // …but like a real mountain road it may CUT a bench up to `cutMax` deep into
+      // a rise before it resorts to a bridge: first the highest grade-limited line
+      // under the land (cuts), floored at land − cutMax, then the lowest
+      // grade-limited line above that (ramps and bridges)
       const gMax = (r.type === 'canyon' || r.type === 'gravel') ? 0.16 : r.type === 'highway' ? 0.09 : 0.14;
+      const cutMax = r.type === 'highway' ? 16 : 12;
       const landYs = ys.slice();
       if (typeof r.y !== 'number' && r.y !== 'trench') {
+        for (let i = 1; i < n; i++) ys[i] = Math.min(ys[i], ys[i - 1] + gMax * step);
+        for (let i = n - 2; i >= 0; i--) ys[i] = Math.min(ys[i], ys[i + 1] + gMax * step);
+        for (let i = 0; i < n; i++) ys[i] = Math.max(ys[i], landYs[i] - cutMax);
         for (let i = 1; i < n; i++) ys[i] = Math.max(ys[i], ys[i - 1] - gMax * step);
         for (let i = n - 2; i >= 0; i--) ys[i] = Math.max(ys[i], ys[i + 1] - gMax * step);
       }
@@ -194,7 +202,7 @@ export class WorldTerrain {
         for (let i = 0; i < n; i++) { let s = 0, c = 0; for (let k = -w; k <= w; k++) { const j = i + k; if (j >= 0 && j < n) { s += ys[j]; c++; } } out[i] = s / c; }
         ys.set(out);
       }
-      if (typeof r.y !== 'number' && r.y !== 'trench') for (let i = 0; i < n; i++) ys[i] = Math.max(ys[i], landYs[i]);   // the blur never sinks the deck under a crest
+      if (typeof r.y !== 'number' && r.y !== 'trench') for (let i = 0; i < n; i++) ys[i] = Math.max(ys[i], landYs[i] - cutMax);   // the blur never digs past the cut
       r.ys = ys; r.L = L; r.step = L / (n - 1); r.landYs = landYs;
     }
   }
@@ -262,9 +270,30 @@ export class WorldTerrain {
     if (n.d > hw + cut) return land;
     const ry = this.roadY(r, n.s);
     if (n.d <= hw) return ry;
-    // beside the road the land is the land — no cut, no fill. Only where the deck
-    // sits at grade does a short lip carry the ground up to its edge.
+    // beside the road the land is the land — no fill, and the only cut is a
+    // bench: where the hill is ABOVE the deck (the uphill side of a road along
+    // a slope) the ground steps back up to itself over 3 m, a rock cut. Where
+    // the deck is at grade a short lip meets its edge; where it's above the
+    // land the skirt and the pillars do the work.
+    if (land > ry + 0.3) return n.d <= hw + 3 ? lerp(ry + 0.06, land, sm((n.d - hw) / 3)) : land;
     if (n.d <= hw + 1.5 && Math.abs(ry - land) < 1.2) return lerp(ry + 0.06, land, sm((n.d - hw) / 1.5));
+    return land;
+  }
+
+  // what the TERRAIN MESH draws (height() is what the wheels feel): the land,
+  // except that where the hill is above the deck the bench cut keeps the ground
+  // just under the road, and where the deck is at grade a lip meets its edge.
+  // Under a bridge the ground is the ground.
+  ground(x, z) {
+    const land = this.land(x, z);
+    const n = this.nearestRoad(x, z);
+    if (!n) return land;
+    const r = n.road, hw = r.T.w / 2;
+    if (n.d > hw + 3) return land;
+    const ry = this.roadY(r, n.s);
+    if (r.type === 'pier') return land;
+    if (land > ry + 0.3) return n.d <= hw ? ry - 0.05 : lerp(ry - 0.05, land, sm((n.d - hw) / 3));
+    if (Math.abs(ry - land) < 1.2) return n.d <= hw ? ry - 0.05 : n.d <= hw + 1.5 ? lerp(ry - 0.05, land, sm((n.d - hw) / 1.5)) : land;
     return land;
   }
 
