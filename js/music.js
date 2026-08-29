@@ -60,6 +60,7 @@ const DEFAULT_MIX = {
   riser:  { g: 0.5, send: { hall: 0.4 } }, boom: { g: 0.9, drum: true, send: { hall: 0.3 } },
   sub:    { g: 0.45, duck: 1 }, bass808: { g: 0.5, duck: 1 }, hbass: { g: 0.55, duck: 1 }, slap: { g: 0.7, duck: 0.3 },
   stab:   { g: 0.55, duck: 1, send: { room: 0.3, delay: 0.15 }, crush: 11, lp: 9000 },
+  pluck:  { g: 0.6, duck: 0.7, send: { room: 0.25, delay: 0.22 }, crush: 9, lp: 7500, chorus: true },
   rhodes: { g: 0.5, duck: 0.3, send: { room: 0.3 } }, organ: { g: 0.35, pan: 0.25, send: { room: 0.25 } },
   brass:  { g: 0.5, send: { room: 0.3 } }, strings: { g: 0.35, send: { hall: 0.5 } }, pad: { g: 0.35, duck: 1, send: { hall: 0.5 } },
   lead:   { g: 0.45, duck: 0.6, send: { delay: 0.3, hall: 0.2 } }, bell: { g: 0.45, send: { hall: 0.6, delay: 0.2 } }, steel: { g: 0.45, pan: 0.3, send: { room: 0.35 } },
@@ -170,6 +171,12 @@ export class Music {
     if (m.crush) { const ws = c.createWaveShaper(); ws.curve = shaperCurve('crush', m.crush); node.connect(ws); node = ws; }
     if (m.lp) { const f = c.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = m.lp; f.Q.value = 0.5; node.connect(f); node = f; }
     if (m.hp) { const f = c.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = m.hp; node.connect(f); node = f; }
+    if (m.chorus) {                                  // a detuned pair either side: the 90s widener
+      const sum = c.createGain(), dl = c.createDelay(0.05), dr = c.createDelay(0.05), lfo = c.createOscillator(), lg = c.createGain();
+      dl.delayTime.value = 0.011; dr.delayTime.value = 0.017; lfo.frequency.value = 0.9; lg.gain.value = 0.0014; lfo.connect(lg); lg.connect(dl.delayTime); lg.connect(dr.delayTime); lfo.start();
+      const pl = c.createStereoPanner(), pr = c.createStereoPanner(); pl.pan.value = -0.6; pr.pan.value = 0.6; const wl = c.createGain(), wr = c.createGain(); wl.gain.value = 0.5; wr.gain.value = 0.5;
+      node.connect(sum); node.connect(dl).connect(pl).connect(wl).connect(sum); node.connect(dr).connect(pr).connect(wr).connect(sum); node = sum;
+    }
     const pan = c.createStereoPanner(); pan.pan.value = m.pan || 0; node.connect(pan);
     let dest;
     if (m.drum || DRUM_INSTS.has(name)) dest = this.drumBus;
@@ -215,7 +222,8 @@ export class Music {
     osc.frequency.setValueAtTime(f0, t); osc.frequency.exponentialRampToValueAtTime(f1, t + (o.sweep ?? 0.055));
     const g = this.gain(0); g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(v, t + 0.002); g.gain.exponentialRampToValueAtTime(0.001, t + dec);
     const ws = this.ctx.createWaveShaper(); ws.curve = shaperCurve('tanh', drive);
-    osc.connect(g).connect(ws).connect(ch);
+    if (o.lp) { const lp = this.lpf(o.lp, 0.8); osc.connect(g).connect(ws).connect(lp).connect(ch); }
+    else osc.connect(g).connect(ws).connect(ch);
     if (o.click !== 0) { const n = this.noiseSrc(t, t + 0.02), ng = this.gain(0), hp = this.hpf(1800); ng.gain.setValueAtTime(v * (o.click ?? 0.5), t); ng.gain.exponentialRampToValueAtTime(0.001, t + 0.012); n.connect(hp).connect(ng).connect(ch); }
     if (this.song) this.pump(t, (o.duck ?? this.song.duck ?? 0.4) * v, this.song.duckRelease ?? Math.min(0.3, this.stepDur * 3.2));
   }
@@ -292,7 +300,9 @@ export class Music {
     const a = this.osc('sawtooth', f, t, t + dur + 0.1), b = this.osc('square', f / 2, t, t + dur + 0.1), bg = this.gain(0.18), flt = this.lpf(300, o.q ?? 5), g = this.gain(0);
     flt.frequency.setValueAtTime(o.cut ?? 2200, t); flt.frequency.exponentialRampToValueAtTime(240, t + (o.fdec ?? 0.13));
     this.adsr(g, t, 0.003, 0, 1, 0.03, dur, v * 0.8);
-    a.connect(flt); b.connect(bg).connect(flt); flt.connect(g).connect(ch);
+    a.connect(flt); b.connect(bg).connect(flt);
+    if (o.drive) { const ws = this.ctx.createWaveShaper(); ws.curve = shaperCurve('tanh', o.drive); const lp = this.lpf(o.dlp ?? 3200); flt.connect(ws).connect(lp).connect(g).connect(ch); }
+    else flt.connect(g).connect(ch);
   }
   slap(t, v, o) {
     const ch = this.channel('slap', this.song).inp, f = freq(o.note), dur = Math.min(o.dur, 0.45), pop = !!o.pop;
@@ -314,6 +324,17 @@ export class Music {
       this.osc('sawtooth', f, t, end, -9).connect(flt); this.osc('sawtooth', f, t, end, 9).connect(flt);
       const sq = this.osc('square', f / 2, t, end), sg = this.gain(0.22); sq.connect(sg).connect(flt);
       const ping = this.osc('sine', f * 2, t, t + 0.08), pg = this.gain(0); pg.gain.setValueAtTime(0.25, t); pg.gain.exponentialRampToValueAtTime(0.001, t + 0.05); ping.connect(pg).connect(g);
+    }
+  }
+  pluck(t, v, o) {                                    // the PSX pluck: two saws, a square an octave up, a fast bright filter
+    const ch = this.channel('pluck', this.song).inp, notes = o.notes || [o.note], dur = o.dur, flt = this.lpf(1200, 1.8), g = this.gain(0);
+    flt.frequency.setValueAtTime(o.cut ?? 9000, t); flt.frequency.exponentialRampToValueAtTime(o.floor ?? 1400, t + (o.fdec ?? 0.11));
+    const end = this.adsr(g, t, 0.002, 0.22, 0.12, 0.06, Math.min(dur, o.maxDur ?? 0.35), v / Math.sqrt(notes.length));
+    flt.connect(g).connect(ch);
+    for (const n of notes) {
+      const f = freq(n);
+      this.osc('sawtooth', f, t, end, -7).connect(flt); this.osc('sawtooth', f, t, end, 7).connect(flt);
+      const sq = this.osc('square', f * 2, t, end), sg = this.gain(0.18); sq.connect(sg).connect(flt);
     }
   }
   rhodes(t, v, o) {                                   // DX-style electric piano: FM bark + a tine
@@ -397,7 +418,7 @@ export class Music {
     let peak = 0; for (let i = 0; i < len; i++) peak = Math.max(peak, Math.abs(d[i])); if (peak > 0) for (let i = 0; i < len; i++) d[i] /= peak;
     this.ks.set(key, b); return b;
   }
-  pluck(kind, t, v, o) {
+  ks(kind, t, v, o) {
     const ch = this.channel(kind, this.song).inp, notes = o.notes || [o.note], strum = o.strum ?? (kind === 'guitar' ? 0.014 : 0.03);
     notes.forEach((n, i) => {
       const t0 = t + i * strum, s = this.ctx.createBufferSource(); s.buffer = this.pluckBuffer(kind, n);
@@ -405,8 +426,8 @@ export class Music {
       s.connect(g).connect(ch); s.start(t0); s.stop(t0 + s.buffer.duration);
     });
   }
-  guitar(t, v, o) { this.pluck('guitar', t, v, o); }
-  harp(t, v, o) { this.pluck('harp', t, v, o); }
+  guitar(t, v, o) { this.ks('guitar', t, v, o); }
+  harp(t, v, o) { this.ks('harp', t, v, o); }
 
   // --- the Oo: formant synthesis. Three bandpass filters shape a buzz into a vowel. ---
   oo(t, v, o) {
@@ -457,6 +478,7 @@ export class Music {
     this.fx.delay.setTime(song.delay ?? this.stepDur * 6);          // dotted eighth by default
     this.tapeDepth.gain.value = (song.tape ?? 0) * 0.0009; this.tapeDepth2.gain.value = (song.tape ?? 0) * 0.00012;
     this.drumOut.gain.value = song.drumLevel ?? 0.7;
+    this.drumSat.curve = shaperCurve('tanh', song.drumDrive ?? 1.5);
     const now = this.ctx.currentTime;
     this.pos = opts.startStep ?? 0;
     this.nextTime = (opts.at ?? now + 0.08);
@@ -544,9 +566,12 @@ export class Music {
         const ch = pat[local % pat.length];
         if (ch === '.' || ch === ' ' || ch === undefined) continue;
         const vel = (ch === 'x' ? 1 : ch === 'o' ? 0.62 : ch === '-' ? 0.32 : ch === 'X' ? 1.15 : 0.5) * (part.vel ?? 1) * fade * (song.human ? 1 + (this.rng() - 0.5) * 0.12 : 1);
-        const o = { ...(part.o || {}) };
-        if (inst === 'ohat') { o.open = true; this.hat(t, vel, o); }
-        else if (this[inst]) this[inst](t, vel, o);
+        const o = { ...(part.o || {}) }, div = o.div || 1;
+        for (let k = 0; k < div; k++) {
+          const tk = t + k * sd / div, vk = k ? vel * 0.85 : vel;
+          if (inst === 'ohat') { o.open = true; this.hat(tk, vk, o); }
+          else if (this[inst]) this[inst](tk, vk, o);
+        }
       } else if (part.n) {                              // note events [step, note|notes, lenSteps, vel, extra]
         const L = part.L || 16, at = local % L;
         for (const ev of part.n) {

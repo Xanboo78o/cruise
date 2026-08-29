@@ -51,52 +51,99 @@ function arp(inst, chords, lo, idx, stepLen, o = {}) {
 const line = (inst, L, ev, o = {}) => N(inst, ev.map(([s, n, len, v, ex]) => [s, Array.isArray(n) ? n.map(midi) : midi(n), len, v ?? 0.85, ex]), L, o);
 
 // =============================================================================
-// GROUP B · ANTI-LAG — rally house, 128, A♭ major. Piano stabs punctuate, the
-// bass rolls on the offbeat, the Oo call pace notes, anti-lag fills, a turbo
-// flutter into every drop. Bouncy, not dark.
+// GROUP B — rally house. 90s house drums (clean, punchy, a garage shuffle in
+// the hats), a bouncy bass on the offbeat eighths, a cowbell borrowed from
+// phonk, and THE RIFF: Adam's "1,1,2,2,2,1,1,3,3,3 with the synth" — ten stabs
+// on a dotted-eighth bounce across two bars, on a bright PlayStation-era
+// pluck, in a major key. No distortion anywhere: the energy is the bounce.
 // =============================================================================
-const AB = ['Fm7', 'Dbmaj7', 'Ab', 'Eb'];                   // vi IV I V — the lift is in the last bar
+const RIFF_STEPS = [0, 3, 6, 9, 12, 15, 18, 21, 24, 27];
+const RIFF_CH = ['Abmaj7', 'Abmaj7', 'Bbm7', 'Bbm7', 'Bbm7', 'Abmaj7', 'Abmaj7', 'Cm7', 'Cm7', 'Cm7'];   // I · ii · I · iii
+const RIFF_TOP = ['Ab5', 'Ab5', 'Bb5', 'Bb5', 'Bb5', 'Ab5', 'Ab5', 'C6', 'C6', 'C6'];
+const riffChordAt = st => { let c = RIFF_CH[0]; for (let i = 0; i < RIFF_STEPS.length; i++) if (RIFF_STEPS[i] <= st) c = RIFF_CH[i]; return c; };
+const riffPluck = (o = {}) => N('pluck', RIFF_STEPS.map((st, i) => [st, [midi(RIFF_TOP[i]), ...voice(RIFF_CH[i], 68)], 2, o.vel ?? 0.95, o.ev]), 32, o.part || {});
+const riffTop = (o = {}) => N(o.inst || 'pluck', RIFF_STEPS.map((st, i) => [st, o.inst === 'lead' ? midi(RIFF_TOP[i]) + (o.tr || 0) : [midi(RIFF_TOP[i]) + (o.tr || 0)], 2, o.vel ?? 0.8, o.ev]), 32, o.part || {});
+// the riff over `bars` bars with the filter opening hit by hit — the build
+const riffSweep = (bars, from, to, vel = 0.85) => {
+  const ev = [], n = bars / 2 * RIFF_STEPS.length; let k = 0;
+  for (let b2 = 0; b2 < bars / 2; b2++) RIFF_STEPS.forEach((st, i) => { const u = k++ / n; ev.push([b2 * 32 + st, [midi(RIFF_TOP[i]), ...voice(RIFF_CH[i], 68)], 2, vel * (0.7 + 0.3 * u), { cut: from * Math.pow(to / from, u), floor: 500 + 900 * u }]); });
+  return N('pluck', ev, bars * 16);
+};
+const BOUNCE_O = { cut: 1100, q: 2, fdec: 0.1 };
+const bounce = (o = {}) => N('hbass', [2, 6, 10, 14, 18, 22, 26, 30].map(st => [st, root(riffChordAt(st), 2), 1, o.vel ?? 0.9]), 32, { o: BOUNCE_O, ...(o.part || {}) });
+const downSub = () => N('sub', [0, 16].map(st => [st, root(riffChordAt(st), 2), 2, 0.7]), 32);
+const offOrgan = () => N('organ', [2, 6, 10, 14, 18, 22, 26, 30].map(st => [st, voice(riffChordAt(st), 64), 1, 0.7]), 32);
+const AB = ['Fm7', 'Dbmaj7', 'Abmaj7', 'Eb'];                // vi IV I V under the melody sections
+const HOUSE_KICK = { f0: 180, f1: 50, sweep: 0.05, dec: 0.22, drive: 1.3, click: 0.6 };
+const B8 = (bar7, bar8) => '................|'.repeat(6) + bar7 + '|' + bar8;   // an 8-bar string with only the last two bars filled
 const gb = {
-  kick: X('kick', 'x...x...x...x...', { o: { f0: 200, f1: 50, dec: 0.28, drive: 1.9, click: 0.7 } }),
-  hatSoft: X('hat', 'o-x-o-x-o-x-o-x-', { vel: 0.6, o: { dec: 0.05 } }),
-  kickBuild: X('kick', 'x...x...x...x...|x...x...x...x...|x...x...x...x...|x.x.x.x.x.x.x.x.', { vel: 0.9, o: { f0: 200, f1: 50, dec: 0.26, drive: 1.9 } }),
-  clap: X('clap', '....x.......x...'),
-  hat: X('hat', 'o-x-o-x-o-x-o-x-', { o: { dec: 0.05 } }),
-  ohat: X('ohat', '..x...x...x...x.', { lvl: 0.35, vel: 0.8, o: { dec: 0.19 } }),
-  shaker: X('shaker', 'x-o-x-o-x-o-x-o-', { lvl: 0.25, vel: 0.9 }),
-  ride: X('ride', 'x...x...x...x...', { lvl: 0.6, vel: 0.7 }),
-  cowbell: X('cowbell', '......x.......x.|..............x.', { lvl: 0.45, vel: 0.8 }),
-  crash: X('crash', 'x...............|................|................|................', { vel: 0.7 }),
-  antilagEnd: X('antilag', '................|................|................|..............x.', { o: { n: 5 } }),
-  antilagDrop: X('antilag', '................|................|................|..............x.', { lvl: 0.4, vel: 0.8, o: { n: 3 } }),
-  flutterEnd: X('flutter', '................|................|................|............x...', { o: { dur: 0.9 } }),
-  riser: X('riser', 'x...............|................|................|................', { vel: 0.5, o: { dur: 60 / 128 * 16 } }),
-  boom: X('boom', 'x...............|................|................|................', { vel: 0.8 }),
-  stab: comp('stab', AB, 'x..x..x...x.x...', 65, { len: 2, vel: 0.9 }),
-  stabSoft: comp('stab', AB, 'x..x..x...x.x...', 65, { len: 2, vel: 0.45, ev: { cut: 2200, floor: 600 } }),
-  stabBreak: comp('stab', AB, 'x.......x.......', 65, { len: 6, vel: 0.9, ev: { cut: 3200, floor: 700 } }),
-  sub: bassline('sub', AB, [[0, 0, 4, 0.9], [8, 0, 3, 0.7]], 2),
-  hbass: bassline('hbass', AB, [[2, 0, 2, 0.85], [6, 0, 2, 0.85], [10, 12, 1, 0.75], [11, 0, 1, 0.6], [14, 0, 2, 0.9]], 2),
-  bass808: bassline('bass808', AB, [[0, 0, 14, 0.5]], 1),
-  // the Oo pace notes: "oo-oo-OO" up a third each call
-  pace: line('oochop', 32, [[0, 'Ab4', 1, 0.7], [2, 'Ab4', 1, 0.7], [4, 'C5', 2, 0.9, { glide: midi('Ab4') }], [16, 'Bb4', 1, 0.7], [18, 'Bb4', 1, 0.7], [20, 'Eb5', 2, 0.95, { glide: midi('Bb4') }]], { lvl: 0.3, o: { vowel: 'oh' } }),
-  // the hook: the San Oozi motif (3–5–1–6) as a chopped Oo
-  hook: line('oochop', 32, [[0, 'C5', 2, 0.9], [3, 'Eb5', 2, 0.9], [6, 'Ab5', 3, 1.0, { glide: midi('Eb5') }], [10, 'F5', 2, 0.85], [12, 'Eb5', 3, 0.8], [24, 'Eb5', 2, 0.7], [26, 'C5', 2, 0.7], [28, 'Ab4', 3, 0.75]], { lvl: 0.4 }),
-  choir: comp('oo', AB, 'x...............', 60, { len: 16, vel: 0.7, part: { lvl: 0.5, o: { a: 0.3, voices: 3 } } }),
-  vinylPart: null,
+  kick: X('kick', 'x...x...x...x...', { o: HOUSE_KICK }),
+  kickIn: X('kick', '................|'.repeat(4) + 'x...x...x...x...|'.repeat(3) + 'x...x...x...x...', { o: HOUSE_KICK }),
+  clap: X('clap', '....x.......x...', { vel: 0.9 }),
+  snare: X('snare', '....x.......x...', { vel: 0.5, o: { dec: 0.14, tone: 195, snap: 0.8, body: 0.5 } }),
+  hat: X('hat', 'x-o-x-o-x-o-x-o-', { vel: 0.95, o: { dec: 0.045 } }),
+  ohat: X('ohat', '..x...x...x...x.', { vel: 0.9, o: { dec: 0.16 } }),
+  shaker: X('shaker', 'o-x-o-x-o-x-o-x-', { vel: 0.7, lvl: 0.25 }),
+  rim: X('rim', '...x......x..x..', { vel: 0.5, lvl: 0.3 }),
+  cowbell: X('cowbell', '......x.......x.|..........x.....', { vel: 0.7, lvl: 0.35, o: { dec: 0.2 } }),
+  ride: X('ride', 'x.x.x.x.x.x.x.x.', { vel: 0.45, lvl: 0.55 }),
+  crash: X('crash', 'x...............|................|................|................', { vel: 0.6 }),
+  roll: X('snare', B8('........x...x...', 'x...x...x.x.xxxx'), { vel: 0.8, o: { dec: 0.12, snap: 1, body: 0.4 } }),
+  riser: X('riser', 'x...............|'.repeat(7) + '................', { vel: 0.4, o: { dur: 60 / 132 * 32 } }),
+  flutter: X('flutter', B8('................', '............x...'), { vel: 0.6, o: { dur: 0.7 } }),
+  antilag: X('antilag', B8('..............x.', '................'), { vel: 0.7, o: { n: 4 } }),
+  riff: riffPluck(), riffSoft: riffPluck({ vel: 0.6, ev: { cut: 2500, floor: 800 } }), riffBuild: riffSweep(8, 900, 9000),
+  riffHi: riffTop({ tr: 12, vel: 0.5, part: { lvl: 0.5 } }), riffLead: riffTop({ inst: 'lead', vel: 0.55, part: { lvl: 0.6 } }),
+  bass: bounce(), sub: downSub(), organ: offOrgan(),
+  pad: N('strings', [[0, [midi('Ab3'), midi('Eb4'), midi('Ab4')], 32, 0.5, { pad: true }]], 32, { lvl: 0.3 }),
+  choir: comp('oo', ['Abmaj7', 'Cm7'], 'x...............', 60, { len: 16, vel: 0.6, part: { lvl: 0.5, o: { a: 0.3, voices: 3 } } }),
+  chops: N('oochop', [[0, 'Ab5', 2, 0.8], [3, 'Ab5', 2, 0.8], [6, 'Bb5', 3, 0.9, { glide: midi('Ab5') }], [21, 'C6', 2, 0.85], [24, 'C6', 3, 0.9, { glide: midi('Bb5') }]].map(e => [e[0], midi(e[1]), e[2], e[3], e[4]]), 32, { lvl: 0.4 }),
 };
 const antilag = {
-  id: 'antilag', station: 'groupb', name: 'ANTI-LAG', artist: 'Oo Motorsport Club', bpm: 128, key: 'Ab', swing: 0.09,
-  duck: 0.55, duckRelease: 0.22, vinyl: 0.12, tape: 0.15, drumLevel: 0.78,
-  mix: { stab: { g: 0.6 }, oochop: { g: 0.6 }, hbass: { g: 0.66 } },
+  id: 'antilag', station: 'groupb', name: 'ANTI-LAG', artist: 'Oo Motorsport Club', bpm: 132, key: 'Ab', swing: 0.16,
+  duck: 0.45, duckRelease: 0.2, vinyl: 0.15, drumLevel: 0.8, drumDrive: 1.3,
+  mix: { pluck: { g: 0.72 }, hbass: { g: 0.62 }, sub: { g: 0.45 }, lead: { g: 0.4 }, oochop: { g: 0.55 } },
   sections: [
-    { name: 'intro', bars: 8, parts: [gb.hatSoft, gb.shaker, gb.stabSoft, gb.riser] },
-    { name: 'build', bars: 8, parts: [gb.kickBuild, gb.clap, gb.hat, gb.shaker, gb.stab, gb.sub, gb.hbass, gb.pace, gb.riser, gb.antilagEnd, gb.flutterEnd] },
-    { name: 'drop', bars: 16, drop: true, parts: [gb.crash, gb.boom, gb.kick, gb.clap, gb.hat, gb.ohat, gb.shaker, gb.stab, gb.sub, gb.hbass, gb.hook, gb.antilagDrop] },
-    { name: 'break', bars: 8, parts: [gb.hat, gb.stabBreak, gb.bass808, gb.choir, gb.pace, gb.riser, gb.antilagEnd, gb.flutterEnd] },
-    { name: 'build2', bars: 8, parts: [gb.kickBuild, gb.clap, gb.hat, gb.ohat, gb.shaker, gb.stab, gb.sub, gb.hbass, gb.riser, gb.antilagEnd, gb.flutterEnd] },
-    { name: 'drop2', bars: 16, drop: true, parts: [gb.crash, gb.boom, gb.kick, gb.clap, gb.hat, gb.ohat, gb.shaker, gb.ride, gb.cowbell, gb.stab, gb.sub, gb.hbass, gb.hook, gb.choir, gb.antilagDrop] },
-    { name: 'outro', bars: 8, fade: true, parts: [gb.kick, gb.hat, gb.stabSoft, gb.sub] },
+    { name: 'intro', bars: 8, parts: [gb.hat, gb.shaker, gb.riffSoft, gb.sub] },
+    { name: 'build', bars: 8, parts: [gb.kickIn, gb.clap, gb.hat, gb.ohat, gb.bass, gb.riffBuild, gb.riser, gb.roll, gb.antilag, gb.flutter] },
+    { name: 'drop', bars: 16, drop: true, parts: [gb.crash, gb.kick, gb.clap, gb.snare, gb.hat, gb.ohat, gb.shaker, gb.rim, gb.bass, gb.sub, gb.riff, gb.riffHi, gb.cowbell] },
+    { name: 'break', bars: 8, parts: [gb.hat, gb.organ, gb.pad, gb.choir, gb.chops, gb.riser, gb.roll, gb.flutter] },
+    { name: 'drop2', bars: 24, drop: true, parts: [gb.crash, gb.kick, gb.clap, gb.snare, gb.hat, gb.ohat, gb.shaker, gb.rim, gb.ride, gb.bass, gb.sub, gb.riff, gb.riffHi, gb.riffLead, gb.cowbell, gb.chops] },
+    { name: 'outro', bars: 8, fade: true, parts: [gb.kick, gb.hat, gb.bass, gb.riffSoft] },
+  ],
+};
+
+// QUATTRO — the same palette a gear up: 140, the riff AND a melody (F minor
+// over the A♭ chords — relative keys, the same notes, sadder on top).
+const QM = [[0, 'F5', 2], [2, 'Ab5', 2], [4, 'C6', 4], [8, 'Bb5', 2], [10, 'Ab5', 2], [12, 'G5', 4],
+  [16, 'F5', 2], [18, 'Ab5', 2], [20, 'Db6', 4], [24, 'C6', 2], [26, 'Bb5', 2], [28, 'Ab5', 4],
+  [32, 'Ab5', 2], [34, 'C6', 2], [36, 'Eb6', 4], [40, 'Db6', 2], [42, 'C6', 2], [44, 'Bb5', 4],
+  [48, 'C6', 2], [50, 'Bb5', 2], [52, 'G5', 4], [56, 'Bb5', 2], [58, 'C6', 2], [60, 'F5', 4]];
+const qt = {
+  ...gb,
+  riser: X('riser', 'x...............|'.repeat(7) + '................', { vel: 0.4, o: { dur: 60 / 140 * 32 } }),
+  mel: N('pluck', QM.map(([st, n, l]) => [st, [midi(n)], l, 0.9]), 64),
+  melSoft: N('pluck', QM.map(([st, n, l]) => [st, [midi(n)], l, 0.6, { cut: 3000, floor: 900 }]), 64),
+  melLead: N('lead', QM.map(([st, n, l]) => [st, midi(n), l, 0.6]), 64, { lvl: 0.5 }),
+  melChords: comp('pluck', AB, '..x...x...x...x.', 65, { len: 1, vel: 0.6, part: { lvl: 0.3 } }),
+  bassAB: bassline('hbass', AB, [[2, 0, 1, 0.9], [6, 0, 1, 0.9], [10, 0, 1, 0.9], [14, 0, 1, 0.9]], 2, { o: BOUNCE_O }),
+  subAB: bassline('sub', AB, [[0, 0, 2, 0.7]], 2),
+  padAB: comp('strings', AB, 'x...............', 60, { len: 16, vel: 0.5, part: { o: { pad: true } } }),
+  choirAB: comp('oo', AB, 'x...............', 60, { len: 16, vel: 0.6, part: { lvl: 0.5, o: { a: 0.3, voices: 3 } } }),
+};
+const quattro = {
+  id: 'quattro', station: 'groupb', name: 'QUATTRO', artist: 'Oo Motorsport Club', bpm: 140, key: 'Ab', swing: 0.12,
+  duck: 0.5, duckRelease: 0.18, vinyl: 0.1, drumLevel: 0.85, drumDrive: 1.4,
+  mix: { pluck: { g: 0.72 }, hbass: { g: 0.62 }, sub: { g: 0.45 }, lead: { g: 0.42 }, oochop: { g: 0.55 } },
+  sections: [
+    { name: 'intro', bars: 8, parts: [qt.hat, qt.shaker, qt.melSoft, qt.padAB, qt.subAB] },
+    { name: 'build', bars: 8, parts: [qt.kickIn, qt.clap, qt.hat, qt.ohat, qt.bass, qt.riffBuild, qt.riser, qt.roll, qt.antilag, qt.flutter] },
+    { name: 'drop', bars: 24, drop: true, parts: [qt.crash, qt.kick, qt.clap, qt.snare, qt.hat, qt.ohat, qt.shaker, qt.rim, qt.bass, qt.sub, qt.riff, qt.riffHi, qt.cowbell] },
+    { name: 'break', bars: 8, parts: [qt.hat, qt.melSoft, qt.padAB, qt.choirAB, qt.chops, qt.riser, qt.roll, qt.flutter] },
+    { name: 'build2', bars: 8, parts: [qt.kickIn, qt.clap, qt.hat, qt.ohat, qt.bassAB, qt.mel, qt.padAB, qt.riser, qt.roll, qt.antilag, qt.flutter] },
+    { name: 'drop2', bars: 16, drop: true, parts: [qt.crash, qt.kick, qt.clap, qt.snare, qt.hat, qt.ohat, qt.shaker, qt.rim, qt.bassAB, qt.subAB, qt.mel, qt.melLead, qt.melChords, qt.cowbell] },
+    { name: 'drop3', bars: 16, drop: true, parts: [qt.kick, qt.clap, qt.snare, qt.hat, qt.ohat, qt.shaker, qt.rim, qt.ride, qt.bass, qt.sub, qt.riff, qt.riffHi, qt.riffLead, qt.cowbell, qt.chops] },
+    { name: 'outro', bars: 8, fade: true, parts: [qt.kick, qt.hat, qt.bass, qt.riffSoft] },
   ],
 };
 
@@ -214,9 +261,9 @@ const ascend = {
   ],
 };
 
-export const SONGS = { antilag, oozisquare, ascend };
+export const SONGS = { quattro, antilag, oozisquare, ascend };
 export const STATIONS = [
-  { id: 'groupb', name: 'GROUP B', tag: 'rally house · 119–131', color: '#ff4d2e', songs: ['antilag'] },
+  { id: 'groupb', name: 'GROUP B', tag: 'hardtekk · rally house', color: '#ff4d2e', songs: ['quattro', 'antilag'] },
   { id: 'rockers', name: 'ROCKERS', tag: 'the band at the meet', color: '#ffd23f', songs: ['oozisquare'] },
   { id: 'jumvas', name: 'JUMVAS', tag: 'lo-fi that leaves the ground', color: '#8ad7ff', songs: ['ascend'] },
 ];
