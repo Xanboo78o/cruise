@@ -270,31 +270,25 @@ export class WorldTerrain {
     if (n.d > hw + cut) return land;
     const ry = this.roadY(r, n.s);
     if (n.d <= hw) return ry;
-    // beside the road the land is the land — no fill, and the only cut is a
-    // bench: where the hill is ABOVE the deck (the uphill side of a road along
-    // a slope) the ground steps back up to itself over 3 m, a rock cut. Where
-    // the deck is at grade a short lip meets its edge; where it's above the
-    // land the skirt and the pillars do the work.
-    if (land > ry + 0.3) return n.d <= hw + 3 ? lerp(ry + 0.06, land, sm((n.d - hw) / 3)) : land;
-    if (n.d <= hw + 1.5 && Math.abs(ry - land) < 1.2) return lerp(ry + 0.06, land, sm((n.d - hw) / 1.5));
-    return land;
+    return this.ground(x, z);                                 // beside the road: the cut, the embankment, or the land
   }
 
-  // what the TERRAIN MESH draws (height() is what the wheels feel): the land,
-  // except that where the hill is above the deck the bench cut keeps the ground
-  // just under the road, and where the deck is at grade a lip meets its edge.
-  // Under a bridge the ground is the ground.
+  // the ground beside and under a road, the way a road is actually built:
+  // CUT where the hill is above the deck (a bench, the wall steps back over 3 m),
+  // FILL where the deck is up to 8 m above the land (an embankment, 1:1 slope),
+  // BRIDGE beyond that (the ground is the ground; skirts and piers do the rest).
+  // Both the terrain mesh and the wheels use this beside the road.
   ground(x, z) {
     const land = this.land(x, z);
     const n = this.nearestRoad(x, z);
     if (!n) return land;
     const r = n.road, hw = r.T.w / 2;
-    if (n.d > hw + 3) return land;
-    const ry = this.roadY(r, n.s);
-    if (r.type === 'pier') return land;
-    if (land > ry + 0.3) return n.d <= hw ? ry - 0.05 : lerp(ry - 0.05, land, sm((n.d - hw) / 3));
-    if (Math.abs(ry - land) < 1.2) return n.d <= hw ? ry - 0.05 : n.d <= hw + 1.5 ? lerp(ry - 0.05, land, sm((n.d - hw) / 1.5)) : land;
-    return land;
+    if (r.type === 'pier' || n.d > hw + 12) return land;
+    const ry = this.roadY(r, n.s), over = ry - land;         // deck above (+) or below (−) the land
+    const out = n.d - hw;                                    // metres past the deck edge
+    if (over < -0.3) return out <= 0 ? ry - 0.05 : out <= 3 ? lerp(ry - 0.05, land, sm(out / 3)) : land;            // cut
+    if (over <= 8) { const bank = ry - 0.05 - Math.max(0, out); return out <= 0 ? ry - 0.05 : Math.max(land, bank); }   // fill: 1:1 down to the land
+    return land;                                                                                                          // bridge
   }
 
   surfaceAt(x, z) {

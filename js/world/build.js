@@ -239,7 +239,7 @@ export class WorldBuilder {
         const landL = T.land(L[0], L[1]), landR = T.land(R[0], R[1]), landC = T.land(p.x, p.z);
         const cur = {
           dl: V(L[0], y, L[1], cs), dr: V(R[0], y, R[1], cs),                                       // deck edges
-          sl: V(L[0], Math.max(landL - 0.4, y - 1.6), L[1], concrete), sr: V(R[0], Math.max(landR - 0.4, y - 1.6), R[1], concrete),   // skirt bottoms
+          sl: V(L[0], ry - landL > 8 ? y - 1.6 : Math.max(landL - 0.4, y - 0.5), L[1], concrete), sr: V(R[0], ry - landR > 8 ? y - 1.6 : Math.max(landR - 0.4, y - 0.5), R[1], concrete),   // skirt bottoms: a kerb-deep edge on an embankment, a 1.6 m slab on a bridge
           kl: kerbed ? [V(L[0], y + 0.3, L[1], kerbC), V(L[0] - nx * 0.55, y + 0.3, L[1] - nz * 0.55, kerbC), V(L[0] - nx * 0.55, y, L[1] - nz * 0.55, kerbC)] : null,
           kr: kerbed ? [V(R[0], y + 0.3, R[1], kerbC), V(R[0] + nx * 0.55, y + 0.3, R[1] + nz * 0.55, kerbC), V(R[0] + nx * 0.55, y, R[1] + nz * 0.55, kerbC)] : null,
         };
@@ -254,7 +254,7 @@ export class WorldBuilder {
         }
         // one pier under a bridge every 40 m
         sincePillar += prev ? step : 0;
-        if (ry - landC > 3 && sincePillar >= 40 && r.type !== 'pier') {
+        if (ry - landC > 8 && sincePillar >= 40 && r.type !== 'pier') {
           sincePillar = 0;
           for (const side of [0]) {
             const cx = p.x, cz = p.z, hwid = Math.min(3, hw * 0.4), bottom = T.land(cx, cz) - 1.5;
