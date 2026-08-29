@@ -40,19 +40,22 @@ async function gz(bytes, mode) {
 const b64 = u8 => { let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(s); };
 const unb64 = s => { const b = atob(s), u = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) u[i] = b.charCodeAt(i); return u; };
 
+// unit: how many steps per metre — 10 (decimetres, ±3 276 m) since the mountains;
+// older files carry no unit and are centimetres
 export async function encodeTerrain(td) {
   if (!td || !td.touched) return null;
-  const n = td.dh.length, cm = new Int16Array(n);
-  for (let i = 0; i < n; i++) cm[i] = Math.max(-32000, Math.min(32000, Math.round(td.dh[i] * 100)));
-  const dh = b64(await gz(new Uint8Array(cm.buffer), 'gzip'));
+  const n = td.dh.length, q = new Int16Array(n), unit = 10;
+  for (let i = 0; i < n; i++) q[i] = Math.max(-32000, Math.min(32000, Math.round(td.dh[i] * unit)));
+  const dh = b64(await gz(new Uint8Array(q.buffer), 'gzip'));
   const paint = b64(await gz(td.paint, 'gzip'));
-  return { n, dh, paint };
+  return { n, unit, dh, paint };
 }
 export async function decodeTerrain(t) {
   if (!t || !t.dh) return null;
   try {
-    const cmBytes = await gz(unb64(t.dh), 'gunzip'), cm = new Int16Array(cmBytes.buffer, cmBytes.byteOffset, cmBytes.byteLength / 2);
-    const dh = new Float32Array(cm.length); for (let i = 0; i < cm.length; i++) dh[i] = cm[i] / 100;
+    const unit = t.unit || 100;
+    const qBytes = await gz(unb64(t.dh), 'gunzip'), q = new Int16Array(qBytes.buffer, qBytes.byteOffset, qBytes.byteLength / 2);
+    const dh = new Float32Array(q.length); for (let i = 0; i < q.length; i++) dh[i] = q[i] / unit;
     const paint = await gz(unb64(t.paint), 'gunzip');
     return { dh, paint: new Uint8Array(paint), touched: true };
   } catch (e) { console.warn('terrain data', e); return null; }

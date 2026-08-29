@@ -1,0 +1,22 @@
+<!doctype html><meta charset="utf-8"><title>concept template</title>
+<style>body{margin:0;background:#fff}canvas{display:block}</style>
+<canvas id="c" width="1300" height="1030"></canvas>
+<script>
+// the world: x -3000..3000 (east +), z -2100..2500 (north +), 5 m per px, sea level = 0
+const W = 6000, H = 4600, S = 5, ox = 64, oz = 30;
+const c = document.getElementById('c'), g = c.getContext('2d');
+g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
+const px = x => ox + (x + 3000) / S, pz = z => oz + (2500 - z) / S;
+// light lines every 250 m, bold every 1000 m
+for (let x = -3000; x <= 3000; x += 250) { g.strokeStyle = x % 1000 ? '#e4e4e4' : '#9a9a9a'; g.lineWidth = x % 1000 ? 1 : 1.5; g.beginPath(); g.moveTo(px(x), pz(2500)); g.lineTo(px(x), pz(-2100)); g.stroke(); }
+for (let z = -2000; z <= 2500; z += 250) { g.strokeStyle = z % 1000 ? '#e4e4e4' : '#9a9a9a'; g.lineWidth = z % 1000 ? 1 : 1.5; g.beginPath(); g.moveTo(px(-3000), pz(z)); g.lineTo(px(3000), pz(z)); g.stroke(); }
+g.strokeStyle = '#333'; g.lineWidth = 2; g.strokeRect(px(-3000), pz(2500), W / S, H / S);
+g.fillStyle = '#555'; g.font = '12px monospace'; g.textAlign = 'center';
+for (let x = -3000; x <= 3000; x += 1000) g.fillText(x, px(x), pz(-2100) + 16);
+g.textAlign = 'right'; for (let z = -2000; z <= 2500; z += 1000) g.fillText(z, px(-3000) - 6, pz(z) + 4);
+g.textAlign = 'left'; g.font = 'bold 14px monospace'; g.fillStyle = '#222';
+g.fillText('NORTH ↑   6 km × 4.6 km   1 square = 250 m   heights in metres, sea = 0', px(-3000), pz(2500) - 6);
+g.font = '12px monospace'; g.fillStyle = '#555';
+g.fillText('mark: peaks ● 1800 · ridges: a line + height · valleys/lakes: a line + depth · the road: a line + its type (expressway / hill road / gravel)', px(-3000), pz(-2100) + 34);
+g.fillText('X = viewpoint · T = tunnel · H = hairpin · B = bridge · shade the ground: pines / dry grass / rock / sand / snow · boxes with names for places', px(-3000), pz(-2100) + 50);
+</script>

@@ -29,6 +29,17 @@ createServer(async (req, res) => {
       return;
     }
   }
+  // concept drop: POST /upload?name=file.png with the raw bytes → concept/inbox/
+  if (url.pathname === '/upload' && req.method === 'POST') {
+    const name = (url.searchParams.get('name') || 'sketch.png').replace(/[^a-z0-9._-]/gi, '_').replace(/^\.+/, '');
+    const chunks = []; req.on('data', c => chunks.push(c));
+    req.on('end', async () => {
+      try { await writeFile(join(ROOT, 'concept/inbox', name), Buffer.concat(chunks)); console.log(new Date().toISOString().slice(11, 19), 'concept', name, Buffer.concat(chunks).length, 'bytes'); res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ ok: true, name })); }
+      catch (e) { res.writeHead(500); res.end(String(e)); }
+    });
+    return;
+  }
+  if (url.pathname === '/inbox') { const { readdir } = await import('node:fs/promises'); const list = await readdir(join(ROOT, 'concept/inbox')).catch(() => []); res.writeHead(200, { 'content-type': 'application/json' }); return res.end(JSON.stringify(list.filter(f => !f.startsWith('.')))); }
   let p = decodeURIComponent(url.pathname); if (p.endsWith('/')) p += 'index.html';
   const file = join(ROOT, p);
   if (!file.startsWith(ROOT)) { res.writeHead(403); return res.end(); }

@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>SAN OOZI · concept drop</title>
+<style>
+body { margin: 0; background: #0f1116; color: #e8e6e0; font: 14px/1.5 ui-monospace, monospace; }
+main { max-width: 900px; margin: 0 auto; padding: 20px; }
+h1 { letter-spacing: 4px; font-size: 18px; } h1 span { color: #ffd98a; }
+.drop { border: 2px dashed #3a4050; border-radius: 12px; padding: 34px; text-align: center; margin: 16px 0; }
+.drop.over { border-color: #ffd98a; background: rgba(255,217,138,.06); }
+button, label.btn { background: #ffd98a; color: #151820; border: 0; padding: 12px 18px; border-radius: 8px; font: inherit; font-weight: 700; letter-spacing: 1px; cursor: pointer; display: inline-block; }
+input[type=file] { display: none; }
+ul { list-style: none; padding: 0; } li { padding: 6px 0; border-bottom: 1px solid #22262f; } li a { color: #7ea6ff; }
+img.tpl { max-width: 100%; border-radius: 8px; border: 1px solid #22262f; }
+p.dim { color: #8a90a0; }
+</style></head><body><main>
+<h1>SAN OOZI · <span>CONCEPT DROP</span></h1>
+<p>Draw over the template (any app, any device on the wifi), then drop the picture here. It lands in <code>concept/inbox/</code> on the PC and I read it from there.</p>
+<div class="drop" id="drop"><label class="btn">PICK PICTURES<input type="file" id="file" accept="image/*,.pdf" multiple></label><p class="dim">or drag them onto this box · phone/iPad: PICK PICTURES opens the camera roll</p></div>
+<ul id="list"></ul>
+<p><a href="concept/template.png" download style="color:#7ea6ff">↓ template.png</a> — the world from above, 1 square = 250 m, north up, sea level 0.</p>
+<img class="tpl" src="concept/template.png" alt="the map template">
+<script>
+const list = document.getElementById('list'), drop = document.getElementById('drop');
+async function refresh() { try { const r = await fetch('/inbox'); const files = await r.json(); list.innerHTML = files.map(f => `<li><a href="concept/inbox/${encodeURIComponent(f)}">${f}</a></li>`).join('') || '<li class="dim">nothing yet</li>'; } catch { list.innerHTML = '<li class="dim">no server — run node tools/serve.mjs</li>'; } }
+async function send(files) { for (const f of files) { const name = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-') + '-' + f.name; await fetch('/upload?name=' + encodeURIComponent(name), { method: 'POST', body: f }); } refresh(); }
+document.getElementById('file').onchange = e => send(e.target.files);
+drop.ondragover = e => { e.preventDefault(); drop.classList.add('over'); }; drop.ondragleave = () => drop.classList.remove('over');
+drop.ondrop = e => { e.preventDefault(); drop.classList.remove('over'); send(e.dataTransfer.files); };
+refresh();
+</script></main></body></html>
