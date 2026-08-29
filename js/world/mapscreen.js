@@ -54,7 +54,7 @@ export class MapScreen {
     g.putImageData(img, 0, 0);
     const col = { highway: '#f5c145', blvd: '#ffd98a', street: '#d8d4cc', hill: '#ff9a5c', coast: '#7ed3ff', gravel: '#c9a36a', canyon: '#ff6b3d', mine: '#ffe066', pier: '#ffffff', sand: '#f7e7b0' };
     g.lineCap = 'round'; g.lineJoin = 'round';
-    for (const r of ROADS) {
+    for (const r of this.o.T.roads) {
       g.strokeStyle = col[r.type]; g.lineWidth = Math.max(1.2, ROAD_TYPES[r.type].w / 9);
       g.beginPath(); r.pts.forEach(([x, z], i) => { const [a, b] = this.P(x, z); i ? g.lineTo(a, b) : g.moveTo(a, b); }); g.stroke();
     }

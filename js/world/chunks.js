@@ -244,6 +244,23 @@ export class Chunks {
     }
   }
 
+  // a triangle, both sides (roof gables, wedges): one colour
+  tri(a, b, c, color, o = {}) {
+    const col = this._c.set(color);
+    const [v0, v1] = this.atlas.stripV(o.strip ?? STRIP.plain);
+    const u = 0.5, v = (v0 + v1) / 2;
+    const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2], wx = c[0] - a[0], wy = c[1] - a[1], wz = c[2] - a[2];
+    let nx = uy * wz - uz * wy, ny = uz * wx - ux * wz, nz = ux * wy - uy * wx;
+    const l = Math.hypot(nx, ny, nz) || 1; nx /= l; ny /= l; nz /= l;
+    const mx = (a[0] + b[0] + c[0]) / 3, mz = (a[2] + b[2] + c[2]) / 3;
+    for (const acc of this.cell(mx, mz, o.far === true)) {
+      const base = acc.n;
+      for (const p of [a, b, c]) acc.vert(p[0], p[1], p[2], nx, ny, nz, col.r, col.g, col.b, u, v);
+      for (const p of [a, b, c]) acc.vert(p[0], p[1], p[2], -nx, -ny, -nz, col.r, col.g, col.b, u, v);
+      acc.idx.push(base, base + 1, base + 2, base + 3, base + 5, base + 4);
+    }
+  }
+
   // a sign panel (w×h, centred at y) facing `yaw`, with a backing board
   sign(x, y, z, w, h, yaw, text, bg, o = {}) {
     const [u0, v0, u1, v1] = this.atlas.ad(text, bg);
@@ -261,7 +278,7 @@ export class Chunks {
   }
 
   finish(opts = {}) {
-    const mat = this.atlas.material;
+    const mat = opts.material || this.atlas.material;
     for (const c of this.cells.values()) {
       for (const which of ['near', 'far']) {
         const acc = c[which]; if (!acc.idx.length) continue;

@@ -38,9 +38,12 @@ import { Screens } from './menu.js';
 import { Q, QUALITY } from './quality.js';
 import { Stats } from './stats.js';
 import { Glare } from './glare.js';
+import { loadCityDoc } from './world/citydoc.js';
+import { Editor } from './editor.js';
 
 const SKY_CYCLE = ['sunset', 'noon', 'dawn', 'night'];
 const MS = 2.23694;
+const cityDoc = await loadCityDoc();                                       // the city as a document: roads + everything placed by hand
 
 const S = {
   track: 'harbor', carId: 'hachi', unitMph: true,
@@ -80,6 +83,7 @@ let population = null, peds = null, traffic = null;                       // the
 let challenges = null;                                                    // traps, drift zones, jumps, figurines, photos
 let lightsNight = false, lastDistrict = null, gateHold = 0;
 const progress = new Progress();                                           // medals, cash, cars, stickers
+const editor = new Editor({ scene, camera, renderer, input, hud, car, doc: cityDoc, getModel: () => model, getWorld: () => world, rebuild: rebuildWorld });   // the city tool (B in the city)
 const cloud = new Cloud();                                                 // …and where they go when you sign in
 let cloudSaveT = null;
 progress.onSave = data => { clearTimeout(cloudSaveT); cloudSaveT = setTimeout(() => cloud.save(data), 1500); };
@@ -105,7 +109,7 @@ const env = {
 // ---------------------------------------------------------------- world setup
 function getModel(id) {
   if (modelCache.has(id)) return modelCache.get(id);
-  const m = id === 'sanoozi' ? new FreeRoam() : id === 'city' ? buildCity() : new TrackModel(TRACKS[id]);
+  const m = id === 'sanoozi' ? new FreeRoam(cityDoc) : id === 'city' ? buildCity() : new TrackModel(TRACKS[id]);
   modelCache.set(id, m);
   return m;
 }
@@ -166,6 +170,16 @@ function loadTrack(id, opts = {}) {
   if (cfg.mode === 'race') startRace();
   else startCruise();
   S.running = true;
+}
+
+// the city tool changed the roads (or the autofill): build the city again, keep the car where it is
+function rebuildWorld() {
+  const keep = { x: car.x, z: car.z, yaw: car.yaw, hour: S.hour, held: S.clockHeld };
+  modelCache.delete('sanoozi');
+  loadTrack('sanoozi');
+  car.reset(keep.x, keep.z, keep.yaw, model.heightAt(keep.x, keep.z) + 0.3);
+  S.hour = keep.hour; S.clockHeld = keep.held;
+  if (editor.active) editor.onWorldRebuilt();
 }
 
 // CRUISE: the open city, things to hit, a bit of traffic, no clock
@@ -432,7 +446,8 @@ function frame() {
   time += dt;
 
   const autoNow = S.auto || attract;
-  if (!screens.active) handleKeys();
+  if (freeRoam && !worldRace && !screens.active && input.tapped('b')) { if (editor.active) editor.exit(); else editor.enter(); }
+  if (!screens.active && !editor.active) handleKeys();
   const raw = input.read();
   const holding = race && race.state === 'countdown';
   let inp = autoNow ? autoDrive(car, model, S.pace) : raw;
@@ -452,7 +467,7 @@ function frame() {
   if (attract && race && race.state === 'finished') { attractT += dt; if (attractT > 5) { attractT = 0; startRace(); } }
 
   if (stats) stats.physBegin();
-  if (!S.frozen) {
+  if (!S.frozen && !editor.active) {
     acc += dt;
     let steps = 0;
     const arriving = arrival && !arrival.done;
@@ -548,7 +563,8 @@ function frame() {
     drone.update(dt, camera);
     if (input.tapped('enter') || input.tapped(' ') || input.padTapped('a') || input.padTapped('start')) drone.skip();
     if (drone.done) { race.countdown = Math.min(race.countdown, 3.4); document.body.classList.toggle('nohud', !S.hudOn); camera.fov = 62; }
-  } else rig.update(dt, car, input.mouse);
+  } else if (editor.active) editor.update(dt);
+  else rig.update(dt, car, input.mouse);
   if (world.update) world.update(camera.position.x, camera.position.z);
   if (world.updateLights) world.updateLights(car.x, car.z, dt);
   if (lights && lights.sky) { const sd = lights.sky.dirPos || [0, 1, 0]; glare.update(camera, sd, lightsNight ? 0 : 1, dt); }
@@ -698,7 +714,7 @@ function handleKeys() {
   if (input.tapped('h')) { S.hudOn = !S.hudOn; document.body.classList.toggle('nohud', !S.hudOn); }
   if (input.tapped('v')) { S.vertical = !S.vertical; document.body.classList.toggle('vertical', S.vertical); resize(); }
   if (input.tapped('l')) { S.showLine = !S.showLine; world.setAids(S.showLine, S.showBoards); hud.toast('LINE ' + (S.showLine ? 'ON' : 'OFF'), 1000); }
-  if (input.tapped('b')) { S.showBoards = !S.showBoards; world.setAids(S.showLine, S.showBoards); hud.toast('BRAKE BOARDS ' + (S.showBoards ? 'ON' : 'OFF'), 1000); }
+  if (input.tapped('b') && !freeRoam) { S.showBoards = !S.showBoards; world.setAids(S.showLine, S.showBoards); hud.toast('BRAKE BOARDS ' + (S.showBoards ? 'ON' : 'OFF'), 1000); }
   if (input.tapped('g')) { S.ghostOn = !S.ghostOn; hud.toast('GHOST ' + (S.ghostOn ? 'ON' : 'OFF'), 1000); }
   if (input.tapped('p') && !race) { S.paceOn = !S.paceOn; if (S.paceOn) pace.reset(model.nearest(car.x, car.z).p.s + 40); hud.toast('PACE CAR ' + (S.paceOn ? 'ON' : 'OFF'), 1000); }
   if (input.tapped('[')) { S.pace = Math.max(0.4, S.pace - 0.05); hud.toast('PACE ' + Math.round(S.pace * 100) + '%', 900); }
@@ -823,6 +839,7 @@ if (q.has('go') || q.has('shorts')) {
   if (q.has('cd') && race) race.countdown = +q.get('cd');    // short lights for screenshots
   if (q.has('race') && freeRoam) { const rc = RACES.find(r => r.id === q.get('race')); if (rc) { startWorldRace(rc); if (q.has('cd')) race.countdown = +q.get('cd'); if (q.has('nodrone')) drone.skip(); } }
   if (q.has('map') && freeRoam) setTimeout(() => openMap(), 100);
+  if (q.has('edit') && freeRoam) setTimeout(() => editor.enter(), 300);
   if (q.has('arrive') && freeRoam) { arrival = new Arrival(scene, freeRoam.T, { x: car.x, z: car.z, yaw: car.yaw }, 12); document.body.classList.add('nohud'); }
 } else if (q.has('screen')) {
   startAttract();
@@ -832,4 +849,4 @@ if (q.has('go') || q.has('shorts')) {
 }
 frame();
 window.CRUISE = { S, car, screens, renderer, scene, camera, get model() { return model; }, get race() { return race; }, get bots() { return bots; },
-  get world() { return world; }, get traffic() { return traffic; }, get smoke() { return smoke; }, get lights() { return lights; }, glare, get peds() { return peds; }, get carMesh() { return carMesh; } };   // debug handles (tools/shot.mjs breakdown)
+  get world() { return world; }, get traffic() { return traffic; }, get smoke() { return smoke; }, get lights() { return lights; }, glare, editor, cityDoc, get peds() { return peds; }, get carMesh() { return carMesh; } };   // debug handles (tools/shot.mjs breakdown)

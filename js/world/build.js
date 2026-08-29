@@ -8,6 +8,7 @@ import * as THREE from 'three';
 import { WORLD, ROAD_TYPES, DISTRICTS, COAST, CANYON } from './spec.js';
 import { vnoise } from '../terrain.js';
 import { Districts } from './districts.js';
+import { EditLayer } from './edits.js';
 import { CityAtlas, Chunks, GlowLayer } from './chunks.js';
 import { Q } from '../quality.js';
 
@@ -28,10 +29,14 @@ export class WorldBuilder {
     this.buildRoads();
     this.buildForest();
     this.buildBeachAndPier();
-    this.districts = new Districts(T, this.group, this.sky === 'night', this.city, this.glow);
-    this.walls = this.districts.walls;
+    this.doc = opts.doc || { autofill: true, objects: [] };
+    // the old auto-filled districts, until the city tool has replaced them
+    this.districts = this.doc.autofill !== false ? new Districts(T, this.group, this.sky === 'night', this.city, this.glow) : { walls: [] };
     this.city.finish({ shadows: Q.shadows });
     this.glow.finish();
+    // everything placed by hand
+    this.edits = new EditLayer(this.group, this.atlas, T);
+    this.edits.load(this.doc.objects || []);
     // four real lights that hop between the nearest lamps to the player
     this.lights = [];
     for (let i = 0; i < 4; i++) { const l = new THREE.PointLight(0xffd9a0, 0, 42, 2); l.visible = false; this.group.add(l); this.lights.push(l); }
@@ -41,15 +46,16 @@ export class WorldBuilder {
 
   setNight(n) {
     this.night = n;
-    this.atlas.setNight(n); this.glow.setNight(n);
+    this.atlas.setNight(n); this.glow.setNight(n); this.edits.setNight(n);
     for (const l of this.lights) l.visible = n;
   }
+  get walls() { return this._wallsFor === this.edits.walls ? this._walls : (this._wallsFor = this.edits.walls, this._walls = [...this.districts.walls, ...this.edits.walls]); }
 
   // the real lights: the four nearest lamp heads to (px, pz)
   updateLights(px, pz, dt) {
     this.lightT -= dt; if (this.lightT > 0 || !this.night) return;
     this.lightT = 0.2;
-    const lamps = this.glow.lamps; if (!lamps.length) return;
+    const lamps = this.edits.lamps.length ? [...this.glow.lamps, ...this.edits.lamps] : this.glow.lamps; if (!lamps.length) return;
     const best = [];
     for (const l of lamps) { const d = (l[0] - px) ** 2 + (l[2] - pz) ** 2; if (best.length < 4 || d < best[3].d) { best.push({ d, l }); best.sort((a, b) => a.d - b.d); if (best.length > 4) best.pop(); } }
     this.lights.forEach((L, i) => { const b = best[i]; if (!b) { L.intensity = 0; return; } L.position.set(b.l[0], b.l[1] - 0.4, b.l[2]); L.intensity = 900; });
@@ -284,6 +290,7 @@ export class WorldBuilder {
     for (const g of this.farChunks) { const d = Math.hypot(g.cx - camX, g.cz - camZ); g.far.visible = d >= nr - 200 && d < fr; }
     this.city.update(camX, camZ, Q.chunkNear, Q.chunkFar);
     this.glow.update(camX, camZ, Q.chunkNear);
+    this.edits.update(camX, camZ, Q.chunkNear, Q.chunkFar);
   }
 
   setAids() {}

@@ -283,3 +283,28 @@ body.nohud .tc { display: none; }
 /* the sun in your eyes (glare.js) */
 #glare, #glareWash { position: fixed; inset: 0; pointer-events: none; z-index: 5; opacity: 0; }
 #glareWash { background: #fff3dc; mix-blend-mode: screen; }
+
+/* the city tool (editor.js) */
+#cityTool { position: fixed; left: 0; top: 0; bottom: 0; width: 300px; z-index: 40; display: none; flex-direction: column; background: rgba(12,14,20,.86); backdrop-filter: blur(8px); border-right: 1px solid rgba(255,255,255,.08); color: #e8e6e0; font: 12px/1.35 ui-monospace, monospace; }
+#cityTool.on { display: flex; }
+#cityTool.hidden { display: none; }
+body.editing #hud { opacity: 0; }
+body.editing #stats { left: 308px; }
+.ctHead { padding: 10px 12px 6px; display: flex; flex-direction: column; gap: 3px; border-bottom: 1px solid rgba(255,255,255,.08); }
+.ctHead b { letter-spacing: 3px; font-size: 13px; }
+.ctHead span { color: #9aa0aa; font-size: 11px; }
+.ctTabs { display: flex; flex-wrap: wrap; gap: 3px; padding: 6px 8px; }
+.ctTabs button, .ctList button, .ctBtns button { background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.1); color: #e8e6e0; font: inherit; padding: 4px 7px; border-radius: 5px; cursor: pointer; letter-spacing: .5px; text-align: left; }
+.ctTabs button { font-size: 10.5px; letter-spacing: 1px; }
+.ctTabs button.on, .ctList button.on, .ctBtns button.on { background: #ffd98a; color: #151820; border-color: #ffd98a; }
+.ctList { flex: 1; overflow-y: auto; display: grid; grid-template-columns: 1fr 1fr; gap: 3px; padding: 4px 8px; align-content: start; }
+.ctList button { border-left: 3px solid rgba(255,255,255,.15); font-size: 11px; }
+.ctSwatches { display: flex; flex-wrap: wrap; gap: 3px; padding: 6px 8px; border-top: 1px solid rgba(255,255,255,.08); }
+.ctSwatches button { width: 18px; height: 18px; border-radius: 4px; border: 2px solid transparent; padding: 0; cursor: pointer; font: 8px ui-monospace, monospace; color: #e8e6e0; background: rgba(255,255,255,.08); }
+.ctSwatches button.on { border-color: #fff; }
+.ctSwatches button[data-c=""] { width: auto; padding: 0 5px; }
+.ctRow { padding: 4px 12px; color: #ffd98a; font-size: 11px; min-height: 30px; }
+.ctBtns { display: flex; flex-wrap: wrap; gap: 3px; padding: 6px 8px; border-top: 1px solid rgba(255,255,255,.08); }
+.ctBtns button { font-size: 10.5px; }
+.ctBtns button.warn { background: #ff6b8f; color: #151820; border-color: #ff6b8f; }
+.ctHint { padding: 6px 12px 10px; color: #7f8794; font-size: 10px; line-height: 1.5; }

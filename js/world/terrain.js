@@ -25,8 +25,8 @@ function nearestOnPolyline(pts, x, z) {
 }
 
 export class WorldTerrain {
-  constructor() {
-    this.roads = ROADS.map((r, idx) => ({ ...r, idx, T: ROAD_TYPES[r.type], seg: this.segments(r.pts) }));
+  constructor(roads = ROADS) {
+    this.roads = roads.map((r, idx) => ({ ...r, idx, T: ROAD_TYPES[r.type], seg: this.segments(r.pts) }));
     this.buildRoadGrid();
     this.bakeRoadHeights();
   }

@@ -23,6 +23,31 @@ Live at <https://xanboo78o.github.io/cruise/>.
 - A live day: the sky, fog, light and headlights follow the city clock (24 h every
   20 minutes).
 
+## The city tool
+
+Press **B** in the city (or open `?edit=1`). The car stops, the camera comes off
+it, and a panel of ~100 pieces opens: houses, buildings, lights, trees, rocks,
+props, and a road tool. Click to place, shift-drag to brush (trees, lamps,
+fences), right-drag to orbit, wheel to zoom, WASD to move, R rotates, T random
+rotation, V rerolls the look, C cycles the colour, `[` `]` size, N sets the sign
+text, Delete removes, Ctrl+Z undoes. The ROADS tab draws a road point by point
+(Enter finishes, shift-click an existing road removes it) and APPLY ROADS
+rebuilds the world with them cut into the land. AUTOFILL toggles the old
+auto-generated districts off once your own city is ready.
+
+The city is a document — `assets/city/sanoozi.json`: the roads (or `null` for
+the hand-drawn ones in `spec.js`) and every placed piece. Edits autosave to
+localStorage, and to the file when the local server is running:
+
+    node tools/serve.mjs 8137      # serves the game + POST /save
+
+On GitHub Pages there is no server, so EXPORT downloads the file and IMPORT
+loads one; RESET DRAFT drops the local draft and reloads from the file.
+Everything placed goes through the same chunk merger as the rest of the city
+(`world/chunks.js`), one mesh per 300 m cell, so a thousand pieces cost what a
+dozen do. Pieces are recipes in `world/pieces.js` — add one there and it's in
+the panel.
+
 ## Races are places
 
 Twelve races live in the city (`js/world/races.js`): Harbor Loop, The Docks (at
