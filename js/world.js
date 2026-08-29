@@ -15,6 +15,12 @@ export const SKIES = {
             hemiSky: 0x1a2236, hemiGround: 0x06080d, dir: 0x9fb0d8, dirI: 0.14, amb: 0.16, dirPos: [-0.4, 0.7, 0.6] },
 };
 
+// A look can swap the whole palette out from under makeSky/applyLighting/
+// skyForHour without any of them knowing about it.
+let PALETTE = SKIES;
+export function usePalette(p) { PALETTE = p || SKIES; }
+
+
 import { vnoise } from './terrain.js';
 function hash2(x, z) {
   const h = Math.sin(x * 127.1 + z * 311.7) * 43758.5453;
@@ -22,7 +28,7 @@ function hash2(x, z) {
 }
 
 export function makeSky(scene, key) {
-  const s = SKIES[key] || SKIES.sunset;
+  const s = PALETTE[key] || PALETTE.sunset;
   const geo = new THREE.SphereGeometry(4000, 24, 16);
   const mat = new THREE.ShaderMaterial({
     side: THREE.BackSide, depthWrite: false,
@@ -53,28 +59,35 @@ export function skyForHour(hour) {
   let i = 0; while (i < stops.length - 2 && H >= stops[i + 1][0]) i++;
   const [h0, a] = stops[i], [h1, b] = stops[i + 1];
   const t = h1 > h0 ? (H - h0) / (h1 - h0) : 0;
-  const A = SKIES[a], B = SKIES[b];
+  const A = PALETTE[a], B = PALETTE[b];
   const mix = (k) => lerpCol(A[k], B[k], t);
   return { top: mix('top'), bot: mix('bot'), sun: mix('sun'), fog: mix('fog'),
     fogNear: A.fogNear + (B.fogNear - A.fogNear) * t, fogFar: A.fogFar + (B.fogFar - A.fogFar) * t,
     hemiSky: mix('hemiSky'), hemiGround: mix('hemiGround'), dir: mix('dir'), dirI: A.dirI + (B.dirI - A.dirI) * t, amb: A.amb + (B.amb - A.amb) * t,
     dirPos: [0, 1, 2].map(k => A.dirPos[k] + (B.dirPos[k] - A.dirPos[k]) * t), night: t < 0.5 ? a === 'night' : b === 'night' };
 }
+// The world's surfaces are MeshStandard now, not MeshLambert. Lambert is pure
+// diffuse with no energy conservation, so the same lights come out darker under
+// a real BRDF. Two gains, not one: hemisphere light is AMBIENT and ambient is
+// the enemy of contrast, so the sun gets the lift and the ambient is pulled back.
+export const PBR_AMB = 0.85;
+export const PBR_SUN = 2.1;
+
 export function tintSky(skyMesh, lights, scene, s) {
   const u = skyMesh.material.uniforms;
-  u.top.value.copy(s.top); u.bot.value.copy(s.bot); u.sun.value.copy(s.sun); u.sunDir.value.set(...s.dirPos).normalize();
-  scene.fog.color.copy(s.fog); scene.fog.near = s.fogNear; scene.fog.far = s.fogFar;
-  lights.hemi.color.copy(s.hemiSky); lights.hemi.groundColor.copy(s.hemiGround); lights.hemi.intensity = s.amb * 2.2;
-  lights.dir.color.copy(s.dir); lights.dir.intensity = s.dirI;
+  u.top.value.set(s.top); u.bot.value.set(s.bot); u.sun.value.set(s.sun); u.sunDir.value.set(...s.dirPos).normalize();
+  scene.fog.color.set(s.fog); scene.fog.near = s.fogNear; scene.fog.far = s.fogFar;
+  lights.hemi.color.set(s.hemiSky); lights.hemi.groundColor.set(s.hemiGround); lights.hemi.intensity = s.amb * 2.2 * PBR_AMB;
+  lights.dir.color.set(s.dir); lights.dir.intensity = s.dirI * PBR_SUN;
   lights.sky = { ...lights.sky, dirPos: s.dirPos };
 }
 
 export function applyLighting(scene, key) {
-  const s = SKIES[key] || SKIES.sunset;
+  const s = PALETTE[key] || PALETTE.sunset;
   scene.fog = new THREE.Fog(s.fog, s.fogNear, s.fogFar);
-  const hemi = new THREE.HemisphereLight(s.hemiSky, s.hemiGround, s.amb * 2.2);
+  const hemi = new THREE.HemisphereLight(s.hemiSky, s.hemiGround, s.amb * 2.2 * PBR_AMB);
   scene.add(hemi);
-  const dir = new THREE.DirectionalLight(s.dir, s.dirI);
+  const dir = new THREE.DirectionalLight(s.dir, s.dirI * PBR_SUN);
   dir.position.set(s.dirPos[0] * 300, s.dirPos[1] * 300, s.dirPos[2] * 300);
   dir.castShadow = true;
   dir.shadow.mapSize.set(2048, 2048);

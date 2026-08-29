@@ -5,13 +5,14 @@
 
 import * as THREE from 'three';
 
+import { dialMph } from '../look/speed.js';   // the speedo reads in DIAL mph now
 export const CHALLENGES = [
   // speed traps: a camera on a post; score = speed through it
-  { id: 'trapRing', kind: 'trap', name: 'RING CAMERA', x: 600, z: 260, dir: [1, 0], medal: [90, 110, 130, 150] },
-  { id: 'trapRim', kind: 'trap', name: 'RIM CAMERA', x: 60, z: 900, dir: [0, 1], medal: [80, 100, 120, 140] },
-  { id: 'trapCoast', kind: 'trap', name: 'SEAWALL CAMERA', x: -150, z: -1630, dir: [1, 0], medal: [85, 105, 125, 145] },
-  { id: 'trapBlvd', kind: 'trap', name: 'BOULEVARD CAMERA', x: -300, z: -780, dir: [1, 0], medal: [70, 90, 110, 130] },
-  { id: 'trapRunway', kind: 'trap', name: 'RUNWAY CAMERA', x: 2350, z: 700, dir: [1, 0], medal: [100, 120, 140, 160] },
+  { id: 'trapRing', kind: 'trap', name: 'RING CAMERA', x: 600, z: 260, dir: [1, 0], medal: [45, 55, 65, 75] },
+  { id: 'trapRim', kind: 'trap', name: 'RIM CAMERA', x: 60, z: 900, dir: [0, 1], medal: [40, 50, 60, 70] },
+  { id: 'trapCoast', kind: 'trap', name: 'SEAWALL CAMERA', x: -150, z: -1630, dir: [1, 0], medal: [42, 52, 62, 72] },
+  { id: 'trapBlvd', kind: 'trap', name: 'BOULEVARD CAMERA', x: -300, z: -780, dir: [1, 0], medal: [35, 45, 55, 65] },
+  { id: 'trapRunway', kind: 'trap', name: 'RUNWAY CAMERA', x: 2350, z: 700, dir: [1, 0], medal: [50, 60, 70, 80] },
   // drift zones: from a to b along a road; score = sum of angle * speed while sideways
   { id: 'driftHarbor', kind: 'drift', name: 'HARBOR FRONT DRIFT', a: [-560, -1280], b: [560, -1280], medal: [800, 1600, 2600, 4000] },
   { id: 'driftTouge', kind: 'drift', name: 'TOUGE DRIFT', a: [-1000, 800], b: [-1250, 1300], medal: [1200, 2400, 3600, 5000] },
@@ -147,7 +148,7 @@ export class ChallengeWorld {
         const along = (car.x - c.x) * c.dir[0] + (car.z - c.z) * c.dir[1];
         const side = Math.abs((car.x - c.x) * c.dir[1] - (car.z - c.z) * c.dir[0]);
         if (c.prevAlong != null && c.prevAlong < 0 && along >= 0 && side < 16 && car.speed > 4) {
-          const mph = car.speed * 2.237;
+          const mph = dialMph(car.speed);   // same units as the speedo
           const medal = this.progress.medalFor(c, mph);
           this.progress.result(c.id, mph, medal);
           c.flashT = 0.4;

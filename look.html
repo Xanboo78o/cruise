@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CRUISE — materials</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0a0c12; overflow: hidden;
+               font: 12px/1.4 ui-monospace, monospace; color: #d8dbe4; }
+  canvas { display: block; }
+  #legend { position: fixed; left: 12px; top: 12px; z-index: 5;
+            background: rgba(8,10,16,0.82); border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 10px; padding: 10px 12px; max-height: 92vh; overflow: auto; }
+  #legend h1 { margin: 0 0 6px; font-size: 12px; letter-spacing: 3px; color: #ffb06b; }
+  #legend .r { display: flex; justify-content: space-between; gap: 14px; padding: 1px 0; }
+  #legend .r b { color: #fff; font-weight: 600; }
+  #legend .r i { color: #7b8394; font-style: normal; }
+  #hint { position: fixed; right: 12px; bottom: 12px; z-index: 5; color: #7b8394; text-align: right; }
+  #hint b { color: #ffb06b; }
+</style>
+</head>
+<body>
+<div id="legend"><h1>MATERIALS</h1><div id="rows"></div></div>
+<div id="hint">
+  drag to orbit &middot; wheel to zoom<br>
+  <b>1</b> noon &middot; <b>2</b> sunset &middot; <b>3</b> night &middot;
+  <b>N</b> normal maps
+</div>
+
+<script type="importmap">
+{ "imports": {
+    "three": "./js/vendor/three.module.min.js",
+    "./js/vendor/three.core.min.js": "./js/vendor/three.core.min.js",
+    "three/addons/": "./js/vendor/addons/"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { SURFACES, surface, terrainSurface, skyEnvironment, setAnisotropy } from './js/look/materials.js';
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.appendChild(renderer.domElement);
+setAnisotropy(renderer.capabilities.getMaxAnisotropy());
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(42, innerWidth / innerHeight, 0.3, 900);
+
+const hemi = new THREE.HemisphereLight(0xdfe8ff, 0x2a2420, 1.0);
+scene.add(hemi);
+const sun = new THREE.DirectionalLight(0xfff0dc, 2.2);
+sun.position.set(24, 34, 18);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+const d = 34;
+sun.shadow.camera.left = -d; sun.shadow.camera.right = d;
+sun.shadow.camera.top = d; sun.shadow.camera.bottom = -d;
+sun.shadow.camera.far = 160; sun.shadow.bias = -0.0012;
+scene.add(sun, sun.target);
+
+const SKIES = {
+  1: { name: 'NOON',   bg: 0x86b4e8, top: 0x6da2e0, hor: 0xdfe6ee, gnd: 0x4a4238, hemi: 1.0, sunI: 2.2, sunC: 0xfff0dc, fog: 0xcfe0f0, fogFar: 320 },
+  2: { name: 'SUNSET', bg: 0xd8763c, top: 0x8a4a6a, hor: 0xffb07a, gnd: 0x3a2a22, hemi: 0.7, sunI: 1.6, sunC: 0xffb070, fog: 0xc4713f, fogFar: 240 },
+  3: { name: 'NIGHT',  bg: 0x0a1424, top: 0x081020, hor: 0x1b2c46, gnd: 0x0a0a10, hemi: 0.28, sunI: 0.28, sunC: 0x8fb4e8, fog: 0x0a1424, fogFar: 180 },
+};
+let skyKey = 1;
+function applySky(k) {
+  const s = SKIES[k]; skyKey = k;
+  scene.background = new THREE.Color(s.bg);
+  scene.fog = new THREE.Fog(s.fog, 40, s.fogFar);
+  hemi.intensity = s.hemi;
+  sun.intensity = s.sunI; sun.color.setHex(s.sunC);
+  scene.environment = skyEnvironment(renderer, s.top, s.hor, s.gnd);
+}
+
+// ---- the diorama: one plinth + one sphere per surface, on a big ground slab
+const names = Object.keys(SURFACES);
+const COLS = 6, GAP = 7;
+const terrainMat = terrainSurface('dirt', 'cliff', { vertexColors: false });
+const ground = new THREE.Mesh(new THREE.BoxGeometry(220, 2, 220), terrainMat);
+ground.position.y = -1; ground.receiveShadow = true;
+scene.add(ground);
+// a cone and a ramp so the flat/steep blend is actually visible
+const hill = new THREE.Mesh(new THREE.ConeGeometry(11, 16, 24), terrainMat);
+hill.position.set(-26, 8, 6); hill.castShadow = hill.receiveShadow = true;
+scene.add(hill);
+
+const rows = document.getElementById('rows');
+names.forEach((n, i) => {
+  const cx = (i % COLS - (COLS - 1) / 2) * GAP;
+  const cz = (Math.floor(i / COLS) - 1) * GAP;
+  const mat = surface(n);
+  // a flat slab reads the tiling; a sphere reads the triplanar blend on every angle
+  const slab = new THREE.Mesh(new THREE.BoxGeometry(5.4, 1.2, 5.4), mat);
+  slab.position.set(cx, 0.6, cz);
+  slab.castShadow = slab.receiveShadow = true;
+  const ball = new THREE.Mesh(new THREE.SphereGeometry(1.5, 48, 32), mat);
+  ball.position.set(cx, 2.9, cz);
+  ball.castShadow = ball.receiveShadow = true;
+  scene.add(slab, ball);
+  const s = SURFACES[n];
+  rows.insertAdjacentHTML('beforeend',
+    `<div class="r"><b>${n}</b><i>${s.tex} &middot; ${s.tile} m</i></div>`);
+});
+
+// ---- orbit
+let yaw = 0.6, pitch = 0.5, dist = 44, drag = false, px = 0, py = 0;
+addEventListener('mousedown', e => { drag = true; px = e.clientX; py = e.clientY; });
+addEventListener('mouseup', () => drag = false);
+addEventListener('mousemove', e => {
+  if (!drag) return;
+  yaw -= (e.clientX - px) * 0.005; pitch += (e.clientY - py) * 0.004;
+  pitch = Math.max(0.06, Math.min(1.45, pitch));
+  px = e.clientX; py = e.clientY;
+});
+addEventListener('wheel', e => { dist = Math.max(9, Math.min(150, dist * (1 + Math.sign(e.deltaY) * 0.09))); }, { passive: true });
+
+let normals = 1;
+addEventListener('keydown', e => {
+  if (e.key === '1' || e.key === '2' || e.key === '3') applySky(+e.key);
+  if (e.key.toLowerCase() === 'n') {
+    normals = normals ? 0 : 1;
+    scene.traverse(o => { if (o.material && o.material.userData.tri) o.material.userData.tri.uNrmAmt.value = normals; });
+  }
+});
+
+addEventListener('resize', () => {
+  renderer.setSize(innerWidth, innerHeight);
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+});
+
+// URL: ?sky=2&post=0&res=240
+const q = new URLSearchParams(location.search);
+applySky(+(q.get('sky') || 1));
+if (q.has('yaw')) yaw = +q.get('yaw');
+if (q.has('pitch')) pitch = +q.get('pitch');
+if (q.has('dist')) dist = +q.get('dist');
+let last = performance.now() / 1000;
+function frame() {
+  requestAnimationFrame(frame);
+  const now = performance.now() / 1000, dt = Math.min(now - last, 0.1); last = now;
+  camera.position.set(Math.sin(yaw) * Math.cos(pitch) * dist, Math.sin(pitch) * dist, Math.cos(yaw) * Math.cos(pitch) * dist);
+  camera.lookAt(0, 2, 0);
+  renderer.render(scene, camera);
+}
+frame();
+</script>
+</body>
+</html>

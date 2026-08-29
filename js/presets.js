@@ -10,6 +10,7 @@
 // touch sideways to cover it.
 
 const TAU = Math.PI * 2;
+export const VMAX_SCALE = 200 / 112;   // an ordinary street car really does 200, which reads 100
 
 // ARCADE — the same tyre model, just more of everything. Grip up so the launch
 // is traction-limited at something stupid, torque up to use it, drag up so the
@@ -98,9 +99,15 @@ function build(o) {
     drive: o.drive, torqueSplit: o.torqueSplit ?? 0.4, diffLock: o.diffLock ?? 0.4,
     brakeTorque: o.brakeTorque ?? mass * 9.81 * tyreR * (o.brakeG ?? 1.25), brakeBias: o.brakeBias ?? 0.68,
     maxSteer: o.maxSteer, steerFalloff: o.steerFalloff ?? 0.56,
+    // how hard the caster pushes the wheel back to centre, rad/s at full grip
+    satGain: o.satGain ?? 2.4,
     // arcade torque makes everything gear-limited at redline, so top speed is a
-    // number we choose per car (mph) and the engine soft-limits above it
-    vMax: (o.vMax ?? { cup: 112, serious: 135, fun: 100, silly: 85 }[o.tier] ?? 100) / 2.23694,
+    // number we choose per car (mph) and the engine soft-limits above it.
+    // VMAX_SCALE: the dial reads 90 where the car is really doing 160, and 90
+    // is meant to be a speed an ordinary car can reach and be frightened by —
+    // so an ordinary car has to actually get to 160. One number, reversible.
+    vMax: (o.vMax ?? { cup: 112, serious: 135, fun: 100, silly: 85 }[o.tier] ?? 100)
+          * (o.vMaxScale ?? VMAX_SCALE) / 2.23694,
     model: { ...o.model, wheelR: mdl.wheelR, len: mdl.len * S * (o.model.stretchZ ?? 1) },
   };
 }
@@ -171,7 +178,7 @@ export const PRESETS = {
   }),
 
   kart: build({
-    label: 'KART', blurb: 'Someone is driving it. No suspension, no mercy, all elbows.', tier: 'fun', vMax: 78,
+    label: 'KART', blurb: 'Someone is driving it. No suspension, no mercy, all elbows.', tier: 'fun', vMax: 78, vMaxScale: 1.0,
     model: { file: 'kart-oobi', scale: 1.4, stretchX: 1.0 },
     mass: 190, track: 1.0, cgH: 0.34,
     freq: [3.2, 3.2], damping: 0.6, arb: [0.6, 0.6], travel: 0.03, droop: 0.04,
@@ -278,7 +285,7 @@ export const PRESETS = {
 
   // ------------------------------------------------------- more karts
   kart2: build({
-    label: 'KART II', blurb: 'Someone else is driving it. Same kart, different helmet.', tier: 'fun', vMax: 78,
+    label: 'KART II', blurb: 'Someone else is driving it. Same kart, different helmet.', tier: 'fun', vMax: 78, vMaxScale: 1.0,
     model: { file: 'kart-oodi', scale: 1.4, stretchX: 1.0 },
     mass: 190, track: 1.0, cgH: 0.34,
     freq: [3.2, 3.2], damping: 0.6, arb: [0.6, 0.6], travel: 0.03, droop: 0.04,
@@ -287,7 +294,7 @@ export const PRESETS = {
     drive: 'rwd', diffLock: 1.0, brakeG: 1.3, brakeBias: 0.6, maxSteer: 0.42, steerFalloff: 0.45,
   }),
   kart3: build({
-    label: 'KART III', blurb: 'The pink one. Slightly angrier engine.', tier: 'fun', vMax: 82,
+    label: 'KART III', blurb: 'The pink one. Slightly angrier engine.', tier: 'fun', vMax: 82, vMaxScale: 1.0,
     model: { file: 'kart-oozi', scale: 1.4, stretchX: 1.0 },
     mass: 185, track: 1.0, cgH: 0.34,
     freq: [3.2, 3.2], damping: 0.6, arb: [0.6, 0.6], travel: 0.03, droop: 0.04,

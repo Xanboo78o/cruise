@@ -5,11 +5,12 @@
 
 import * as THREE from 'three';
 
+import { shared } from '../look/materials.js';   // LOOK: materials only
 const WALL_STYLE = {
-  concrete: { h: 1.1, w: 0.5, col: 0xbfbbb2, stripe: 0xd94f4f, step: 4 },
-  tyre:     { h: 0.9, w: 0.8, col: 0x22242a, stripe: 0xe8e4d8, step: 1.4 },
-  rock:     { h: 1.4, w: 1.2, col: 0x7a6b5a, stripe: null, step: 3 },
-  timber:   { h: 1.2, w: 0.4, col: 0x6a4f3a, stripe: 0xf5c145, step: 3 },
+  concrete: { h: 1.1, w: 0.5, col: 0xbfbbb2, stripe: 0xd94f4f, step: 4, surf: 'concrete' },
+  tyre:     { h: 0.9, w: 0.8, col: 0x22242a, stripe: 0xe8e4d8, step: 1.4, surf: 'rubber' },
+  rock:     { h: 1.4, w: 1.2, col: 0x7a6b5a, stripe: null, step: 3, surf: 'cliff' },
+  timber:   { h: 1.2, w: 0.4, col: 0x6a4f3a, stripe: 0xf5c145, step: 3, surf: 'timber' },
 };
 
 export class RaceDressing {
@@ -34,7 +35,7 @@ export class RaceDressing {
     const geo = st.stripe == null
       ? new THREE.DodecahedronGeometry(st.h * 0.8, 0)
       : new THREE.BoxGeometry(st.w, st.h, st.step * 0.98);
-    const mat = new THREE.MeshLambertMaterial({ color: st.col, flatShading: true });
+    const mat = shared(st.surf, { tint: st.col });
     const im = new THREE.InstancedMesh(geo, mat, n * 2);
     const d = new THREE.Object3D();
     let k = 0;
@@ -75,7 +76,7 @@ export class RaceDressing {
     const r = this.route, T = this.T, st = this.style;
     const seen = new Set();
     const geo = new THREE.BoxGeometry(1, st.h + 0.3, st.w + 0.3);
-    const mat = new THREE.MeshLambertMaterial({ color: st.col });
+    const mat = shared(st.surf, { tint: st.col });
     for (const road of T.roads) {
       for (let s = 0; s <= road.L; s += 6) {
         const p = T.pointAt(road, s);
@@ -117,7 +118,7 @@ export class RaceDressing {
     const r = this.route, i = Math.floor((r.startIndex || 0) * r.samples.length) % r.samples.length;
     const p = r.samples[i];
     this.startSample = i;
-    const postM = new THREE.MeshLambertMaterial({ color: 0xdad3c4 });
+    const postM = new THREE.MeshStandardMaterial({ color: 0xdad3c4 });
     const hw = r.halfWidth + 1.8;
     for (const side of [-1, 1]) {
       const post = new THREE.Mesh(new THREE.BoxGeometry(0.7, 7.5, 0.7), postM);
@@ -153,7 +154,7 @@ export class RaceDressing {
     const r = this.route, prof = r.profile;
     this.boards = new THREE.Group();
     const panel = new THREE.BoxGeometry(1.7, 1.2, 0.12), post = new THREE.BoxGeometry(0.14, 1.5, 0.14);
-    const postM = new THREE.MeshLambertMaterial({ color: 0x3a3a3a });
+    const postM = new THREE.MeshStandardMaterial({ color: 0x3a3a3a });
     const cols = { 100: 0x2f6fd0, 50: 0xf5c145, 25: 0xe8483a };
     for (const b of prof.brakes) {
       if (b.entry - b.exit < 7) continue;
@@ -162,7 +163,7 @@ export class RaceDressing {
         const p = r.sampleAtDistance((at + r.length) % r.length);
         const px = p.x + p.nx * (r.halfWidth + 2.6), pz = p.z + p.nz * (r.halfWidth + 2.6);
         const mp = new THREE.Mesh(post, postM); mp.position.set(px, p.y + 0.75, pz);
-        const mb = new THREE.Mesh(panel, new THREE.MeshLambertMaterial({ color: cols[d] })); mb.position.set(px, p.y + 2.0, pz); mb.rotation.y = -Math.atan2(p.tx, p.tz);
+        const mb = new THREE.Mesh(panel, new THREE.MeshStandardMaterial({ color: cols[d] })); mb.position.set(px, p.y + 2.0, pz); mb.rotation.y = -Math.atan2(p.tx, p.tz);
         this.boards.add(mp, mb);
       }
     }

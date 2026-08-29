@@ -239,7 +239,7 @@ class CityWorld {
     // ground: everything that isn't road
     const ground = new THREE.Mesh(
       new THREE.PlaneGeometry(b.maxX - b.minX + 400, b.maxZ - b.minZ + 400),
-      new THREE.MeshLambertMaterial({ color: this.night ? 0x1a1d24 : 0x4d5346 })
+      new THREE.MeshStandardMaterial({ color: this.night ? 0x1a1d24 : 0x4d5346 })
     );
     ground.rotation.x = -Math.PI / 2;
     ground.position.set((b.minX + b.maxX) / 2, -0.06, (b.minZ + b.maxZ) / 2);
@@ -248,7 +248,7 @@ class CityWorld {
 
     // water east of the docks
     const water = new THREE.Mesh(new THREE.PlaneGeometry(900, 1400),
-      new THREE.MeshLambertMaterial({ color: this.night ? 0x0b1626 : 0x2b6b8a }));
+      new THREE.MeshStandardMaterial({ color: this.night ? 0x0b1626 : 0x2b6b8a }));
     water.rotation.x = -Math.PI / 2;
     water.position.set(880, -0.4, -20);
     this.group.add(water);
@@ -279,7 +279,7 @@ class CityWorld {
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     g.setIndex(idx);
     g.computeVertexNormals();
-    const m = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ color }));
+    const m = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ color }));
     m.receiveShadow = true;
     return m;
   }
@@ -287,7 +287,7 @@ class CityWorld {
   padMesh() {
     const g = new THREE.CircleGeometry(PAD.r, 48);
     g.rotateX(-Math.PI / 2);
-    const m = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ color: this.night ? 0x23262d : 0x4a4f58 }));
+    const m = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ color: this.night ? 0x23262d : 0x4a4f58 }));
     m.position.set(PAD.x, 0.18, PAD.z);
     m.receiveShadow = true;
     this.group.add(m);
@@ -325,19 +325,19 @@ class CityWorld {
     const tones = [0x8c8f96, 0x8a5f4c, 0x6f8496, 0x9a9280];
     const tex = windowTextures(this.night);
     const geo = new THREE.BoxGeometry(1, 1, 1);
-    const capM = new THREE.MeshLambertMaterial({ color: this.night ? 0x2a2d33 : 0x53565c });
+    const capM = new THREE.MeshStandardMaterial({ color: this.night ? 0x2a2d33 : 0x53565c });
     // One mesh per building rather than one instanced batch: each needs its own
     // UV repeat or the windows come out the size of the rooms behind them.
     // A tile of the texture is 7 windows across by 6 up ~= 22 m x 24 m.
     for (const [x, z, w, d, h, tone] of BUILDINGS) {
       let mat;
       if (tone === 3) {
-        mat = new THREE.MeshLambertMaterial({ color: tones[3] });
+        mat = new THREE.MeshStandardMaterial({ color: tones[3] });
       } else {
         const map = tex.map.clone();
         map.needsUpdate = true;
         map.repeat.set(Math.max(1, w / 22), Math.max(1, h / 24));
-        mat = new THREE.MeshLambertMaterial({ color: tones[tone], map });
+        mat = new THREE.MeshStandardMaterial({ color: tones[tone], map });
         if (this.night) {
           const em = tex.emissive.clone();
           em.needsUpdate = true;
@@ -373,7 +373,7 @@ class CityWorld {
       }
     }
     const poleG = new THREE.CylinderGeometry(0.13, 0.16, 7, 5);
-    const poleM = new THREE.MeshLambertMaterial({ color: 0x4a4d54 });
+    const poleM = new THREE.MeshStandardMaterial({ color: 0x4a4d54 });
     const pi = new THREE.InstancedMesh(poleG, poleM, poles.length);
     const headG = new THREE.BoxGeometry(1.5, 0.22, 0.5);
     const headM = new THREE.MeshBasicMaterial({ color: this.night ? 0xffe0a0 : 0x9fa4ad });
@@ -413,9 +413,9 @@ class CityWorld {
     // palms along the waterfront
     const n = 26;
     const tg = new THREE.CylinderGeometry(0.16, 0.26, 5.4, 5);
-    const ti = new THREE.InstancedMesh(tg, new THREE.MeshLambertMaterial({ color: 0x8a7355 }), n);
+    const ti = new THREE.InstancedMesh(tg, new THREE.MeshStandardMaterial({ color: 0x8a7355 }), n);
     const lg = new THREE.ConeGeometry(2.7, 1.7, 6);
-    const li = new THREE.InstancedMesh(lg, new THREE.MeshLambertMaterial({ color: 0x4f8a4a, flatShading: true }), n);
+    const li = new THREE.InstancedMesh(lg, new THREE.MeshStandardMaterial({ color: 0x4f8a4a, flatShading: true }), n);
     for (let i = 0; i < n; i++) {
       const z = -220 + i * 16.5;
       dummy.position.set(316, 2.7, z); dummy.rotation.set(0, i, 0); dummy.scale.setScalar(1);
@@ -427,7 +427,7 @@ class CityWorld {
 
     // cones in a slalom down the middle of the skidpad link
     const cg = new THREE.ConeGeometry(0.34, 0.8, 6);
-    const cm = new THREE.MeshLambertMaterial({ color: 0xe8622a });
+    const cm = new THREE.MeshStandardMaterial({ color: 0xe8622a });
     const ci = new THREE.InstancedMesh(cg, cm, 14);
     for (let i = 0; i < 14; i++) {
       dummy.position.set(-360 + i * 9, 0.6, -140 + (i % 2 ? 5 : -5));
@@ -471,9 +471,9 @@ class CityWorld {
       for (const d of [100, 50, 25]) {
         const s = m.sampleAtDistance((br.dist - d + m.length) % m.length);
         const px = s.x + s.nx * (m.halfWidth + 2.2), pz = s.z + s.nz * (m.halfWidth + 2.2);
-        const mp = new THREE.Mesh(post, new THREE.MeshLambertMaterial({ color: 0x3a3a3a }));
+        const mp = new THREE.Mesh(post, new THREE.MeshStandardMaterial({ color: 0x3a3a3a }));
         mp.position.set(px, 0.9, pz);
-        const mb = new THREE.Mesh(panel, new THREE.MeshLambertMaterial({ color: cols[d] }));
+        const mb = new THREE.Mesh(panel, new THREE.MeshStandardMaterial({ color: cols[d] }));
         mb.position.set(px, 2.1, pz);
         mb.rotation.y = -Math.atan2(s.tx, s.tz);
         this.boards.add(mp, mb);

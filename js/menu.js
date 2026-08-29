@@ -4,6 +4,7 @@
 
 import * as THREE from 'three';
 import { Car } from './car.js';
+import { DIAL } from './look/speed.js';   // LOOK: same dial as the game's speedo
 import { FlatTerrain } from './terrain.js';
 import { buildCar, placeStaticCar, loadAlienMesh } from './carmesh.js';
 import { VARIANTS } from './world/oo.js';
@@ -379,7 +380,7 @@ export class Screens {
     document.getElementById('sCar').classList.toggle('locked', !owned);
     const n = st.norm[id], r = st.raw[id];
     const rows = [
-      ['SPEED', n.speed, (r.speed * 2.237).toFixed(0) + ' mph'],
+      ['SPEED', n.speed, (r.speed * 2.237 * DIAL).toFixed(0) + ' mph'],
       ['LAUNCH', n.accel, (1 / r.accel).toFixed(1) + ' s to 60'],
       ['GRIP', n.grip, r.grip.toFixed(2) + ' g'],
       ['DRIFT', n.drift, p.drive === 'rwd' ? 'rear-drive' : p.drive === 'awd' ? 'all-wheel' : 'front-drive'],

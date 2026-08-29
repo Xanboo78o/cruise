@@ -29,11 +29,11 @@ export class Arrival {
   buildShip() {
     const g = new THREE.Group();
     g.scale.setScalar(2.2);                                      // a ship, not a frisbee
-    const hull = new THREE.Mesh(new THREE.SphereGeometry(9, 24, 12), new THREE.MeshLambertMaterial({ color: 0xc9ccd4 }));
+    const hull = new THREE.Mesh(new THREE.SphereGeometry(9, 24, 12), new THREE.MeshStandardMaterial({ color: 0xc9ccd4 }));
     hull.scale.set(1, 0.32, 1); g.add(hull);
-    const dome = new THREE.Mesh(new THREE.SphereGeometry(3.6, 18, 10), new THREE.MeshLambertMaterial({ color: 0x8fd3ff, transparent: true, opacity: 0.8 }));
+    const dome = new THREE.Mesh(new THREE.SphereGeometry(3.6, 18, 10), new THREE.MeshStandardMaterial({ color: 0x8fd3ff, transparent: true, opacity: 0.8 }));
     dome.position.y = 2.2; g.add(dome);
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(9.6, 0.5, 8, 36), new THREE.MeshLambertMaterial({ color: 0x3a3d44 }));
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(9.6, 0.5, 8, 36), new THREE.MeshStandardMaterial({ color: 0x3a3d44 }));
     ring.rotation.x = Math.PI / 2; g.add(ring);
     this.lamps = [];
     for (let i = 0; i < 12; i++) {

@@ -20,6 +20,10 @@ export class CameraRig {
     this.tvHold = 0;
     this.shake = 0;
     this.baseFov = 62;
+    // driven by look/speed.js and look/looks.js — nothing here decides these
+    this.fovBoost = 0; this.drop = 0; this.pullIn = 0;
+    this.lookUp = 0; this.lookBack = 0;
+    this.lagScale = 1; this.shakeConst = 0; this.roll = 0;
   }
 
   setTrackCams(model) {
@@ -63,10 +67,12 @@ export class CameraRig {
       case 'chase':
       case 'low': {
         const high = this.mode === 'chase';
-        const dist = (high ? 8.4 : 6.6) + Math.min(speed * 0.11, 3.2);
-        const hgt = high ? 3.5 : 1.75;
+        // the stock rig pulled the camera further OUT with speed, which reads as
+        // slowing down. At pace it comes in and drops toward the road instead.
+        const dist = Math.max(3.2, (high ? 8.4 : 6.6) + Math.min(speed * 0.11, 3.2) - this.pullIn + this.lookBack);
+        const hgt = Math.max(0.7, (high ? 3.5 : 1.75) - this.drop + this.lookUp);
         v.set(car.x - Math.sin(ang) * dist, car.y + hgt, car.z - Math.cos(ang) * dist);
-        const k = 1 - Math.exp(-dt * (high ? 6.5 : 8.5));
+        const k = 1 - Math.exp(-dt * (high ? 6.5 : 8.5) * this.lagScale);
         this.pos.lerp(v, k);
         look.set(car.x + Math.sin(ang) * 6, car.y + 1.1, car.z + Math.cos(ang) * 6);
         this.target.lerp(look, 1 - Math.exp(-dt * 9));
@@ -116,14 +122,18 @@ export class CameraRig {
     // stay out of the ground: a chase cam behind a car in a cutting rides up the wall, it doesn't go through it
     if (this.ground && this.mode !== 'hood') { const floor = this.ground(this.pos.x, this.pos.z) + 1.1; if (this.pos.y < floor) this.pos.y = floor; }
     this.cam.position.copy(this.pos);
-    if (this.shake > 0.001) {
-      const s = this.shake * 0.28;
-      this.cam.position.x += (Math.random() - 0.5) * s;
-      this.cam.position.y += (Math.random() - 0.5) * s;
+    const shakeAmt = this.shake * 0.28 + this.shakeConst;
+    if (shakeAmt > 0.001) {
+      this.cam.position.x += (Math.random() - 0.5) * shakeAmt;
+      this.cam.position.y += (Math.random() - 0.5) * shakeAmt;
+      this.cam.position.z += (Math.random() - 0.5) * shakeAmt * 0.5;
       this.shake *= 1 - Math.min(dt * 4.5, 1);
     }
     this.cam.lookAt(this.target);
-    const wantFov = this.mode === 'hood' ? 74 : this.baseFov + Math.min(speed * 0.30, 16);
+    if (this.roll) this.cam.rotateZ(this.roll);
+    // look/speed.js owns the whole FOV curve now — two things pulling on the
+    // same lens was impossible to tune
+    const wantFov = (this.mode === 'hood' ? 74 : this.baseFov) + this.fovBoost;
     this.cam.fov += (wantFov - this.cam.fov) * Math.min(dt * 3.5, 1);
     this.cam.updateProjectionMatrix();
   }

@@ -6,11 +6,16 @@ import { Car } from './car.js';
 import { PRESETS, CAR_ORDER, TIERS } from './presets.js';
 import { TrackModel } from './track.js';
 import { TRACKS, TRACK_ORDER } from './tracks.js';
-import { World, applyLighting, makeSky, skyForHour, tintSky } from './world.js';
+import { World, applyLighting, makeSky, skyForHour, tintSky, usePalette, SKIES } from './world.js';
 import { buildCar, updateCarMesh, setCarOpacity, setHeadlights, placeStaticCar, setDriver, setStickers } from './carmesh.js';
 import { SkidMarks, Smoke } from './fx.js';
 import { CameraRig, MODE_LABEL } from './camera.js';
 import { Input } from './input.js';
+import { skyEnvironment, setAnisotropy } from './look/materials.js';
+import { SpeedFeel, DIAL } from './look/speed.js';
+import { applyLook, cfgFor, RALLY_SKIES, LOOK_LABEL, LOOKS } from './look/looks.js';
+import { DistanceBlur, DOF_KNOBS } from './look/dof.js';
+import { LookPanel } from './lookpanel.js';
 import { HUD } from './hud.js';
 import { LapRecorder, GhostPlayer, PaceCar, Best } from './ghost.js';
 import { Audio } from './audio.js';
@@ -48,7 +53,7 @@ const cityDoc = await loadCityDoc();                                       // th
 
 const S = {
   track: 'harbor', carId: 'hachi', unitMph: true,
-  stability: 0.7, showLine: true, showBoards: true,
+  stability: 0.35, look: 'real', showLine: true, showBoards: true,
   ghostOn: true, paceOn: false, pace: 0.85, auto: false, frozen: false,
   hudOn: true, vertical: false, skyIdx: 0, skyChosen: false, running: false,
   mode: 'race', bots: 7, laps: 3, shorts: false, paused: false, grid: 'mixed',
@@ -68,6 +73,12 @@ app.appendChild(renderer.domElement);
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(62, 1, 0.4, 5000);
 const rig = new CameraRig(camera);
+const dof = new DistanceBlur(renderer);
+const speedFeel = new SpeedFeel();
+const lookPanel = new LookPanel(speedFeel, dof);   // ` to open
+const ENV_COLS = { noon: [0x6da2e0, 0xdfe6ee, 0x4a4238], sunset: [0x8a4a6a, 0xffb07a, 0x3a2a22],
+                   dawn: [0x4a5a8a, 0xe8b090, 0x3a3830], night: [0x081020, 0x1b2c46, 0x0a0a10] };
+const LOOK_ENV = {};
 const input = new Input(renderer.domElement);
 const hud = new HUD(document.getElementById('hud'));
 const stats = new URLSearchParams(location.search).has('stats') ? new Stats(renderer) : null;
@@ -141,10 +152,13 @@ function loadTrack(id, opts = {}) {
   const skyKey = SKY_CYCLE[S.skyIdx] || model.def.sky;
   skyMesh = makeSky(scene, skyKey);
   lights = applyLighting(scene, skyKey);
+  scene.environment = LOOK_ENV[skyKey] || (LOOK_ENV[skyKey] = skyEnvironment(renderer, ...(ENV_COLS[skyKey] || ENV_COLS.noon)));
+  scene.environmentIntensity = 0.4;
   lights.dir.castShadow = Q.shadows;
   if (Q.shadows) lights.dir.shadow.mapSize.set(Q.shadowMap, Q.shadowMap);
   world = model.buildWorld ? model.buildWorld(scene, skyKey) : new World(model, scene, { sky: skyKey });
   world.setAids(S.showLine, S.showBoards);
+  refreshLook();
   skid = new SkidMarks(scene);
   smoke = new Smoke(scene, Q.smoke);
 
@@ -228,6 +242,27 @@ function startCruise() {
   }
 }
 
+// The look owns sky, fog, lighting and materials, and a track load or the city
+// clock resets those — so it is re-asserted rather than set once.
+function refreshLook() {
+  if (!lights || !skyMesh) return;
+  usePalette(S.look === 'rally' ? RALLY_SKIES : null);
+  const key = (typeof SKY_CYCLE !== 'undefined' && SKY_CYCLE[S.skyIdx]) || (model && model.def && model.def.sky) || 'noon';
+  const table = S.look === 'rally' ? RALLY_SKIES : SKIES;
+  const sky = (typeof freeRoam !== 'undefined' && freeRoam) ? skyForHour(S.hour) : (table[key] || table.noon);
+  tintSky(skyMesh, lights, scene, sky);
+  applyLook(S.look, { renderer, scene, lights, rig, speedFeel, sky, dof,
+    baseAmb: lights.hemi.intensity, baseSun: lights.dir.intensity });
+}
+
+function setLook(name) {
+  S.look = name;
+  const c = cfgFor(name);
+  if (c.dofOn !== undefined) dof.enabled = c.dofOn;
+  refreshLook();
+  hud.toast('LOOK · ' + LOOK_LABEL[name], 1300);
+}
+
 // ------------------------------------------------------------------- race
 function startRace() {
   if (bots) for (const b of bots.list) if (b.mesh) scene.remove(b.mesh);
@@ -302,6 +337,8 @@ function swapSky() {
   if (lights) { scene.remove(lights.hemi, lights.dir, lights.dir.target); }
   skyMesh = makeSky(scene, skyKey);
   lights = applyLighting(scene, skyKey);
+  scene.environment = LOOK_ENV[skyKey] || (LOOK_ENV[skyKey] = skyEnvironment(renderer, ...(ENV_COLS[skyKey] || ENV_COLS.noon)));
+  scene.environmentIntensity = 0.4;
   setHeadlights(carMesh, skyKey === 'night');
 }
 
@@ -439,10 +476,10 @@ function frame() {
   let dt = Math.min(now - last, 0.1);
   last = now;
   screens.update(dt);
-  if (mapScreen && mapScreen.active) { mapScreen.update(dt); renderer.render(scene, camera); input.endFrame(); return; }
+  if (mapScreen && mapScreen.active) { mapScreen.update(dt); dof.render(scene, camera); input.endFrame(); return; }
   if (!S.running || (screens.active && !attract) || S.paused) {
     if (screens.current === 'car' || screens.current === 'track' || screens.current === 'who') screens.renderShowcase(renderer, camera.aspect);
-    else renderer.render(scene, camera);
+    else dof.render(scene, camera);
     input.endFrame();
     return;
   }
@@ -475,7 +512,7 @@ function frame() {
     let steps = 0;
     const arriving = arrival && !arrival.done;
     while (acc >= STEP && steps < 8) {
-      if (!arriving) car.step(STEP, inp, env, autoNow ? AUTO_AIDS : S.stability);
+      if (!arriving) car.step(STEP, inp, env, autoNow ? AUTO_AIDS : S.stability * speedFeel.aidsMul);
       if (model.collide) model.collide(car);
       if (bots) {
         bots.step(STEP, env, allCars(), progOf, race ? race.progOf(car) : null, items, holding);
@@ -567,7 +604,8 @@ function frame() {
     if (input.tapped('enter') || input.tapped(' ') || input.padTapped('a') || input.padTapped('start')) drone.skip();
     if (drone.done) { race.countdown = Math.min(race.countdown, 3.4); document.body.classList.toggle('nohud', !S.hudOn); camera.fov = 62; }
   } else if (editor.active) editor.update(dt);
-  else rig.update(dt, car, input.mouse);
+  else speedFeel.update(dt, car, rig, inp, Math.max(0, 1 - ((typeof surf !== 'undefined' && surf ? surf.grip : 1) ?? 1)) * 2);
+  rig.update(dt, car, input.mouse);
   if (world.update) world.update(camera.position.x, camera.position.z);
   if (world.updateLights) world.updateLights(car.x, car.z, dt);
   if (lights && lights.sky) { const sd = lights.sky.dirPos || [0, 1, 0]; glare.update(camera, sd, lightsNight ? 0 : 1, dt); }
@@ -627,7 +665,7 @@ function frame() {
   const me = race ? race.player : null;
   const gDelta = !race && ghost && ghost.valid && started ? deltaToGhost() : null;
   hud.update(dt, {
-    speedDisplay: car.speed * (S.unitMph ? MS : 3.6),
+    speedDisplay: car.speed * (S.unitMph ? MS : 3.6) * DIAL,
     unit: S.unitMph ? 'MPH' : 'KM/H',
     gear: car.gear, reverse: car.reversing,
     rpm: car.rpm / car.p.redline,
@@ -652,7 +690,7 @@ function frame() {
   });
 
   if (screens.current === 'car' || screens.current === 'track' || screens.current === 'who') screens.renderShowcase(renderer, camera.aspect);
-  else { if (stats) stats.renderBegin(); renderer.render(scene, camera); if (stats) stats.renderEnd(); }
+  else { if (stats) stats.renderBegin(); dof.render(scene, camera); if (stats) stats.renderEnd(); }
   if (stats) stats.update(dt);
   input.endFrame();
 }
@@ -736,6 +774,8 @@ function handleKeys() {
   if (input.tapped('x')) { skid.clear(); smoke.clear(); hud.toast('MARKS CLEARED', 900); }
   if (input.tapped('n')) { S.skyIdx = (S.skyIdx + 1) % SKY_CYCLE.length; S.skyChosen = true; reloadSky(); }
   if (input.tapped('m')) hud.toast('SOUND ' + (audio.toggle() ? 'ON' : 'OFF'), 900);
+  for (let i = 0; i < LOOKS.length; i++) if (input.tapped(String(i + 1))) setLook(LOOKS[i]);   // 1 REAL 2 RALLY 3 FLAT
+  if (input.tapped('4')) { dof.enabled = !dof.enabled; hud.toast('DISTANCE BLUR ' + (dof.enabled ? 'ON' : 'OFF'), 1100); }
   if (input.tapped('u')) { S.unitMph = !S.unitMph; }
   if (input.tapped('escape') || input.tapped('tab')) { if (worldRace) endWorldRace(true); else openMenu(); }
   if (S.shorts && input.tapped('z')) S.auto = true;         // shorts stays on autopilot
@@ -822,11 +862,19 @@ function resize() {
     camera.aspect = w / h;
   }
   camera.updateProjectionMatrix();
+  dof.setSize(innerWidth, innerHeight);
 }
 addEventListener('resize', resize);
 
 // ?t=harbor&c=gt&mode=race&bots=7&laps=3&sky=3&go=1&shorts=1 — bookmarkable
 const q = new URLSearchParams(location.search);
+if (q.has('look') && LOOKS.includes(q.get('look'))) S.look = q.get('look');
+{ const c = cfgFor(S.look); if (c.dofOn !== undefined) dof.enabled = c.dofOn; }
+if (q.get('dof') === '1') dof.enabled = true;
+if (q.get('dof') === '0') dof.enabled = false;
+for (const [k, v] of q) if (DOF_KNOBS[k]) dof.set(k, +v);
+if (q.get('nofog') === '1') { const f = () => { if (scene.fog) { scene.fog.near = 1e5; scene.fog.far = 2e5; } }; f(); setInterval(f, 200); }
+if (q.get('shadows') === '0') renderer.shadowMap.enabled = false;
 const DBG_INPUT = (q.has('steer') || q.has('thr')) ? { steer: +(q.get('steer') || 0), throttle: +(q.get('thr') || 0), brake: 0, handbrake: 0 } : null;
 const DBG_AT = q.has('at') ? (() => { const [x, z, yaw] = q.get('at').split(',').map(Number); return { x, z, yaw: (yaw || 0) * Math.PI / 180 }; })() : null;
 if (q.has('t')) S.track = q.get('t');

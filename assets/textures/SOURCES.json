@@ -1,0 +1,29 @@
+{
+  "source": "ambientCG (https://ambientcg.com)",
+  "licence": "CC0",
+  "size": 512,
+  "maps": [
+    "color",
+    "normal",
+    "rough"
+  ],
+  "assets": {
+    "asphalt": "Road012A",
+    "asphaltold": "Road012C",
+    "concrete": "Concrete034",
+    "concreterough": "Concrete048",
+    "pavement": "PavingStones151",
+    "grass": "Grass005",
+    "grounddry": "Ground103",
+    "rock": "Rock029",
+    "rockgrey": "Rock060",
+    "sand": "Ground080",
+    "gravel": "Gravel043",
+    "bricks": "Bricks104",
+    "planks": "Planks037A",
+    "metal": "CorrugatedSteel005",
+    "metalrust": "CorrugatedSteel007C",
+    "rubber": "Rubber004",
+    "roof": "RoofingTiles013A"
+  }
+}

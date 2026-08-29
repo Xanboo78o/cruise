@@ -124,17 +124,51 @@ export class Car {
     return { x: this.x + w.a * s + w.b * c, z: this.z + w.a * c - w.b * s };
   }
 
-  // How much wheel a full input is worth at this speed. The input asks for a
-  // path curvature, and the curvature is capped by lateral g — so full lock at
-  // 30 mph is a hairpin and full lock at 100 mph is a fast sweeper, never a spin.
-  maxSteerNow(speed) {
-    const kMax = Math.min(0.25, 15 / Math.max(speed * speed, 1));      // 1/m, ~1.5 g
-    return Math.min(this.p.maxSteer, Math.atan(this.L * kMax) * 1.25);  // 1.25: room for slip
+  // How much wheel a full input is worth. Two ends of a slider, not a mode:
+  //
+  //   aids 1 — the input asks for a path CURVATURE and the curvature is capped
+  //            by lateral g, so full lock at 100 is a fast sweeper. Safe, and
+  //            what the game shipped with.
+  //   aids 0 — full lock is full lock at any speed, like a real rack. At 150
+  //            that will absolutely put you in a hedge, which is the point.
+  //
+  // Blending rather than switching matters: a cliff between the two would make
+  // the aids slider feel broken, and it lets him find where he actually wants
+  // to sit instead of me guessing.
+  maxSteerNow(speed, aids = 1) {
+    // 21, not 15: the cap is a lateral-g limit, and 15 was ~1.5 g — fine when
+    // cars topped out at 145, but they do 200+ now and measure 2.4 g, so a
+    // 1.5 g cap left the wheel at literally 0 degrees at top speed.
+    const kMax = Math.min(0.25, 21 / Math.max(speed * speed, 1));      // 1/m, ~2.1 g
+    const capped = Math.min(this.p.maxSteer, Math.atan(this.L * kMax) * 1.25);  // 1.25: room for slip
+    return capped + (this.p.maxSteer - capped) * (1 - Math.max(0, Math.min(1, aids)));
   }
 
   updateSteer(dt, inp, aids) {
     const p = this.p, speed = this.speed;
-    let target = inp.steer * this.maxSteerNow(speed);
+    let target = inp.steer * this.maxSteerNow(speed, aids);
+
+    // INPUT SHAPING. Measured, at 90 on the dial, peak grip arrives at 0.2-0.35
+    // of stick and everything past it is a slide — so three quarters of the
+    // travel was doing nothing but losing grip. That is honest physics (a real
+    // car at 200 has a tiny steering window) and unplayable on a keyboard,
+    // because a real wheel has 900 degrees to find that window and a key has one
+    // bit.
+    //
+    // So the first 75% of travel now spans exactly the grip-limited angle, and
+    // the last 25% is the overdriving region you have to ask for. Nothing about
+    // the tyres changed: the same lock is reachable, it just isn't where your
+    // thumb rests. The autopilot asks for an angle directly and skips this.
+    if (!inp.linearSteer) {
+      const grip = this.maxSteerNow(speed, 1);              // the ~2.1 g angle
+      const limit = this.maxSteerNow(speed, aids);          // how far aids let you go
+      const knee = 0.75;
+      const x = Math.min(1, Math.abs(inp.steer));
+      const g = Math.min(grip, limit);
+      const mag = x <= knee ? g * (x / knee)
+                            : g + (limit - g) * ((x - knee) / (1 - knee));
+      target = Math.sign(inp.steer) * mag;
+    }
     // countersteer help: when the rear is out, point the fronts down the road.
     // This is allowed past the curvature cap — catching a slide needs it.
     if (aids > 0 && Math.abs(this.slipR) > 0.12 && speed > 4) {
@@ -144,10 +178,35 @@ export class Car {
     }
     // handbrake = drift button: while held the car is allowed to rotate harder
     if (inp.handbrake > 0.5 && speed > 6) target *= 1.5;
+    // ONE rack speed, not a rate that conveniently grows with how far you have
+    // to go. Unwinding is faster because the caster is helping you. (Honest
+    // note: a real rack is nowhere near the limiting factor at these numbers —
+    // this is a feel parameter wearing a physics hat.)
+    const RACK_ON = 5.8, RACK_OFF = 8.6;                     // rad/s at the roadwheel
     const diff = target - this.steer;
     const unwinding = Math.abs(target) < Math.abs(this.steer) || Math.sign(target) !== Math.sign(this.steer);
-    const rate = (unwinding ? 9.0 : 4.2 + 2.5 * Math.abs(diff)) * dt;
+    const rate = (unwinding ? RACK_OFF : RACK_ON) * dt;
     this.steer += Math.max(-rate, Math.min(rate, diff));
+
+    // Self-aligning torque. The contact patch trails the steering axis, so the
+    // front tyres' lateral force pushes the wheel back to centre — that is the
+    // weight you feel in a corner, and the reason a real car straightens itself
+    // when you let go. It's written as a centring term rather than a signed
+    // torque so it can never add lock, only take it away.
+    //
+    // The important part isn't the centring, it's that it FADES: when the fronts
+    // start to wash out their lateral force stops climbing, the wheel goes light,
+    // and that lightness is how understeer is felt through a steering wheel. On
+    // full aids it is suppressed entirely, because it fights the assist — and
+    // the autopilot drives on full aids, so the robot never feels it.
+    const w0 = this.wheels[0], w1 = this.wheels[1];
+    const fyF = Math.abs((w0.fyTyre || 0) + (w1.fyTyre || 0));
+    const grip = Math.max(1, (w0.load + w1.load));
+    const sat = (fyF / grip) * p.satGain * (1 - Math.max(0, Math.min(1, aids)));
+    if (this.steer !== 0 && speed > 2) {
+      const back = Math.min(Math.abs(this.steer), sat * dt);
+      this.steer -= Math.sign(this.steer) * back;
+    }
   }
 
   integrate(h, inp, env, aids) {
@@ -255,7 +314,7 @@ export class Car {
           fy = F * (w.sy / s);
         }
       }
-      w.fxTyre = fx;
+      w.fxTyre = fx; w.fyTyre = fy;
       w.slide = Math.hypot(vLat, w.omega * w.radius - vLong) * (w.contact ? 1 : 0);
 
       // wheel spin: engine and brakes in, tyre reaction out

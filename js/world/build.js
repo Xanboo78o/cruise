@@ -6,6 +6,7 @@
 
 import * as THREE from 'three';
 import { WORLD, ROAD_TYPES, DISTRICTS, COAST, CANYON } from './spec.js';
+import { terrainSurface, surface } from '../look/materials.js';   // LOOK: materials only
 import { vnoise } from '../terrain.js';
 import { Districts } from './districts.js';
 import { EditLayer } from './edits.js';
@@ -152,7 +153,9 @@ export class WorldBuilder {
     const nrm = full.attributes.normal.array;
     full.dispose();
     // tiles of TILE×TILE cells (≈1 km): ~30 draw calls at most, half of them culled
-    const TILE = 72, mat = new THREE.MeshLambertMaterial({ vertexColors: true, map: groundTexture() });
+    const TILE = 72, mat = Q.pbr
+      ? terrainSurface('dirt', 'cliff', { vertexColors: true })   // scanned, flat below / rock on the steep
+      : new THREE.MeshLambertMaterial({ vertexColors: true, map: groundTexture() });
     this.terrainTiles = [];
     for (let tj = 0; tj < h; tj += TILE) for (let tk = 0; tk < w; tk += TILE) {
       const cw = Math.min(TILE, w - tk), chh = Math.min(TILE, h - tj);
@@ -325,7 +328,9 @@ export class WorldBuilder {
     g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
     g.setIndex(idx); g.computeVertexNormals();
     // the same ground grain as the terrain, so a shoulder is indistinguishable from the land it meets
-    const mesh = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide, map: groundTexture() }));
+    const mesh = new THREE.Mesh(g, Q.pbr
+      ? surface('road', { vertexColors: true, tint: 0xffffff, side: THREE.DoubleSide })
+      : new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide, map: groundTexture() }));
     mesh.receiveShadow = true;
     this.group.add(mesh);
     this.roadMesh = mesh;

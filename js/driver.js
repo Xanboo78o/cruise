@@ -6,6 +6,9 @@
 export const AUTO_AIDS = 1.0;      // the robot gets ABS, TC and the full yaw hand
 
 export function autoDrive(car, model, pace = 0.85, out = {}, lane = 0) {
+  // the robot works out the ANGLE it wants and normalises it, so the pad's
+  // input-shaping curve must not be applied on top of that
+  out.linearSteer = true;
   const n = model.line.length;
   const spacing = model.length / n;
   const nr = model.nearest(car.x, car.z);
@@ -37,7 +40,7 @@ export function autoDrive(car, model, pace = 0.85, out = {}, lane = 0) {
   const right = dx * cy - dz * sy, fwd = dx * sy + dz * cy;
   const dist = Math.max(2, Math.hypot(dx, dz));
   const alpha = Math.atan2(right, fwd);
-  const dMax = car.maxSteerNow(speed);                    // the car's own steering map
+  const dMax = car.maxSteerNow(speed, AUTO_AIDS);          // the robot drives on full aids
   let steer, spun = false;
 
   if (fwd < 2) {

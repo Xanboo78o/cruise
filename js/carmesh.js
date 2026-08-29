@@ -26,7 +26,7 @@ const WHEEL_NAMES = ['wheel-front-left', 'wheel-front-right', 'wheel-back-left',
 // model is wheel 1 in the sim. Sounds backwards; it isn't.
 const MODEL_TO_PHYS = { 'wheel-front-left': 1, 'wheel-front-right': 0, 'wheel-back-left': 3, 'wheel-back-right': 2 };
 
-const flat = (c, o = {}) => new THREE.MeshLambertMaterial({ color: c, ...o });
+const flat = (c, o = {}) => new THREE.MeshStandardMaterial({ color: c, ...o });
 
 function applyTint(root, tint, opacity) {
   root.traverse(n => {
