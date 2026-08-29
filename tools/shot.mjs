@@ -15,11 +15,42 @@ await new Promise(r => ws.onopen = r);
 let id = 0; const pending = new Map();
 ws.onmessage = e => { const m = JSON.parse(e.data); if (m.id && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id); } };
 const send = (method, params = {}) => new Promise(r => { const i = ++id; pending.set(i, r); ws.send(JSON.stringify({ id: i, method, params })); });
-await send('Page.enable'); await send('Runtime.enable');
+await send('Page.enable'); await send('Runtime.enable'); await send('Log.enable');
+const logs = [];
+ws.addEventListener('message', e => { const m = JSON.parse(e.data);
+  if (m.method === 'Runtime.consoleAPICalled' && (m.params.type === 'error' || m.params.type === 'warning')) logs.push(m.params.type + ': ' + m.params.args.map(a => a.value ?? a.description ?? '').join(' '));
+  if (m.method === 'Runtime.exceptionThrown') logs.push('EXCEPTION: ' + (m.params.exceptionDetails.exception?.description || m.params.exceptionDetails.text));
+  if (m.method === 'Log.entryAdded' && m.params.entry.level === 'error') logs.push('log: ' + m.params.entry.text + ' ' + (m.params.entry.url || '')); });
 await send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 720, deviceScaleFactor: 1, mobile: false });
 await send('Page.navigate', { url });
 await sleep(+waitS * 1000);
 const r = await send('Page.captureScreenshot', { format: 'png' });
+const ev = await send('Runtime.evaluate', { expression: "(document.getElementById('stats')||{}).textContent + ' | crash: ' + (document.getElementById('crash')||{}).textContent", returnByValue: true });
+console.log('stats:', ev.result?.result?.value);
+for (const l of logs.slice(0, 12)) console.log(l);
+// draw-call breakdown: hide each bucket, render, diff
+const bd = await send('Runtime.evaluate', { awaitPromise: true, returnByValue: true, expression: `(async () => {
+  const C = window.CRUISE; if (!C || !C.renderer || !C.world) return 'no world';
+  const r = C.renderer, s = C.scene, cam = C.camera, W = C.world;
+  const buckets = {
+    traffic: () => (C.traffic ? C.traffic.list.map(f => f.mesh) : []),
+    player: () => [C.carMesh],
+    forestNear: () => (W.chunks || []).map(g => g.near),
+    forestFar: () => (W.farChunks || []).map(g => g.far),
+    terrain: () => W.terrainTiles || [],
+    city: () => (W.city && W.city.meshes) || [],
+    peds: () => C.peds ? [C.peds.group] : [],
+  };
+  const render = () => { r.render(s, cam); return r.info.render.calls; };
+  const all = render(); const out = { all, tris: r.info.render.triangles };
+  for (const [k, get] of Object.entries(buckets)) { const objs = get().filter(Boolean); const was = objs.map(o => o.visible); objs.forEach(o => o.visible = false); out[k] = all - render(); objs.forEach((o, i) => o.visible = was[i]); }
+  // and whatever is left: per top-level scene object
+  const rest = [];
+  for (const o of s.children) { if (!o.visible) continue; o.visible = false; const d = all - render(); o.visible = true; if (d > 0) rest.push([d, o.type + ':' + (o.name || '') + '(' + o.children.length + ')']); }
+  rest.sort((a, b) => b[0] - a[0]); out.top = rest.slice(0, 14);
+  return JSON.stringify(out);
+})()` });
+console.log('draw calls:', bd.result?.result?.value);
 writeFileSync(out, Buffer.from(r.result.data, 'base64'));
 console.log('wrote', out);
 ch.kill('SIGKILL'); process.exit(0);

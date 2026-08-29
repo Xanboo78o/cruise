@@ -1,12 +1,15 @@
-// world/build.js — turns the spec + terrain into meshes: the land in chunks,
+// world/build.js — turns the spec + terrain into meshes: the land in tiles,
 // the sea, every road as a ribbon with junction plates, kerb lines, the sand,
 // the pier, and a forest that covers everything that isn't something else.
-// Trees are instanced per 300 m chunk so only the chunks near you draw.
+// Trees are instanced per 300 m chunk (near) with a merged cone forest behind
+// (far), so only what's close costs anything. Buildings go through chunks.js.
 
 import * as THREE from 'three';
 import { WORLD, ROAD_TYPES, DISTRICTS, COAST, CANYON } from './spec.js';
 import { vnoise } from '../terrain.js';
 import { Districts } from './districts.js';
+import { CityAtlas, Chunks } from './chunks.js';
+import { Q } from '../quality.js';
 
 const sm = t => { t = Math.max(0, Math.min(1, t)); return t * t * (3 - 2 * t); };
 function hash2(x, z) { const h = Math.sin(x * 127.1 + z * 311.7) * 43758.5453; return h - Math.floor(h); }
@@ -16,17 +19,25 @@ export class WorldBuilder {
     this.T = T; this.scene = scene; this.sky = opts.sky || 'noon';
     this.group = new THREE.Group();
     scene.add(this.group);
-    this.chunks = [];                                    // forest chunks: {cx, cz, mesh...}
+    this.chunks = [];                                    // forest chunks: {cx, cz, near, far}
+    this.atlas = new CityAtlas();
+    this.city = new Chunks(this.group, this.atlas);
     this.buildTerrain();
     this.buildWater();
     this.buildRoads();
     this.buildForest();
     this.buildBeachAndPier();
-    this.districts = new Districts(T, this.group, this.sky === 'night');
+    this.districts = new Districts(T, this.group, this.sky === 'night', this.city);
     this.walls = this.districts.walls;
+    this.city.finish({ shadows: Q.shadows });
+    this.setNight(this.sky === 'night');
   }
 
+  setNight(n) { this.atlas.setNight(n); }
+
   // ---------------------------------------------------------------- terrain
+  // one height grid, coloured, split into tiles so the far side of the world
+  // is frustum-culled instead of drawn every frame
   buildTerrain() {
     const T = this.T, cell = 14;
     const w = Math.ceil((WORLD.maxX - WORLD.minX) / cell), h = Math.ceil((WORLD.maxZ - WORLD.minZ) / cell);
@@ -52,21 +63,50 @@ export class WorldBuilder {
       col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
       i++;
     }
-    const idx = new Uint32Array(w * h * 6);
+    // normals on the whole grid first, so tile edges don't show a seam
+    const full = new THREE.BufferGeometry();
+    full.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    const fidx = new Uint32Array(w * h * 6);
     let q = 0;
     for (let j = 0; j < h; j++) for (let k = 0; k < w; k++) {
       const a = j * (w + 1) + k;
-      idx[q++] = a; idx[q++] = a + w + 1; idx[q++] = a + 1; idx[q++] = a + 1; idx[q++] = a + w + 1; idx[q++] = a + w + 2;
+      fidx[q++] = a; fidx[q++] = a + w + 1; fidx[q++] = a + 1; fidx[q++] = a + 1; fidx[q++] = a + w + 1; fidx[q++] = a + w + 2;
     }
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    g.setAttribute('color', new THREE.BufferAttribute(col, 3));
-    g.setIndex(new THREE.BufferAttribute(idx, 1));
-    g.computeVertexNormals();
-    const mesh = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ vertexColors: true }));
-    mesh.receiveShadow = true;
-    this.group.add(mesh);
-    this.terrainMesh = mesh;
+    full.setIndex(new THREE.BufferAttribute(fidx, 1));
+    full.computeVertexNormals();
+    const nrm = full.attributes.normal.array;
+    full.dispose();
+    // tiles of TILE×TILE cells (≈1 km): ~30 draw calls at most, half of them culled
+    const TILE = 72, mat = new THREE.MeshLambertMaterial({ vertexColors: true });
+    this.terrainTiles = [];
+    for (let tj = 0; tj < h; tj += TILE) for (let tk = 0; tk < w; tk += TILE) {
+      const cw = Math.min(TILE, w - tk), chh = Math.min(TILE, h - tj);
+      const tp = new Float32Array((cw + 1) * (chh + 1) * 3), tc = new Float32Array((cw + 1) * (chh + 1) * 3), tn = new Float32Array((cw + 1) * (chh + 1) * 3);
+      let m = 0;
+      for (let j = 0; j <= chh; j++) for (let k = 0; k <= cw; k++) {
+        const src = ((tj + j) * (w + 1) + (tk + k)) * 3;
+        tp[m] = pos[src]; tp[m + 1] = pos[src + 1]; tp[m + 2] = pos[src + 2];
+        tc[m] = col[src]; tc[m + 1] = col[src + 1]; tc[m + 2] = col[src + 2];
+        tn[m] = nrm[src]; tn[m + 1] = nrm[src + 1]; tn[m + 2] = nrm[src + 2];
+        m += 3;
+      }
+      const ti = new Uint32Array(cw * chh * 6);
+      let qq = 0;
+      for (let j = 0; j < chh; j++) for (let k = 0; k < cw; k++) {
+        const a = j * (cw + 1) + k;
+        ti[qq++] = a; ti[qq++] = a + cw + 1; ti[qq++] = a + 1; ti[qq++] = a + 1; ti[qq++] = a + cw + 1; ti[qq++] = a + cw + 2;
+      }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(tp, 3));
+      g.setAttribute('color', new THREE.BufferAttribute(tc, 3));
+      g.setAttribute('normal', new THREE.BufferAttribute(tn, 3));
+      g.setIndex(new THREE.BufferAttribute(ti, 1));
+      const mesh = new THREE.Mesh(g, mat);
+      mesh.receiveShadow = true;
+      this.group.add(mesh);
+      this.terrainTiles.push(mesh);
+    }
+    this.terrainMesh = this.terrainTiles[0];
   }
 
   buildWater() {
@@ -134,7 +174,9 @@ export class WorldBuilder {
 
   // ----------------------------------------------------------------- forest
   // trees on a jittered grid, everywhere that isn't road, water, sand, canyon
-  // floor, district or above the treeline. Per chunk, so culling is free.
+  // floor, district or above the treeline. Per chunk: an instanced full tree
+  // (trunk + crown merged, one draw call per kind) near, and a merged static
+  // crown-only forest far. Both frustum-culled.
   buildForest() {
     const T = this.T, CH = 300, spacing = 17;
     const kinds = [
@@ -143,15 +185,20 @@ export class WorldBuilder {
       { trunk: new THREE.CylinderGeometry(0.22, 0.32, 7, 5), leaf: new THREE.ConeGeometry(3.4, 2.2, 6), leafY: 8.2, tc: 0x8a7355, lc: 0x4f8a4a },    // palm-ish
       { trunk: new THREE.CylinderGeometry(0.3, 0.45, 4.5, 5), leaf: new THREE.IcosahedronGeometry(3.2, 0), leafY: 6.4, tc: 0x6a5238, lc: 0xc9742f },  // autumn
     ];
-    const mats = kinds.map(k => ({ t: new THREE.MeshLambertMaterial({ color: k.tc }), l: new THREE.MeshLambertMaterial({ color: k.lc, flatShading: true }) }));
-    const dummy = new THREE.Object3D();
+    // one geometry per kind: trunk + crown, vertex-coloured, so a tree is one draw
+    const treeGeo = kinds.map(k => mergeColoured([[k.trunk, 2.2, k.tc], [k.leaf, k.leafY, k.lc]]));
+    const farCone = new THREE.ConeGeometry(3.4, 9, 5);
+    const mat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
+    const dummy = new THREE.Object3D(), tint = new THREE.Color();
+    const keep = 0.28 + (1 - Q.treeDensity) * 0.72;      // hash threshold: LOW thins the forest
     let total = 0;
+    const farPool = new Map();
     for (let cz = WORLD.minZ; cz < WORLD.maxZ; cz += CH) for (let cx = WORLD.minX; cx < WORLD.maxX; cx += CH) {
       const spots = [[], [], [], []];
       for (let z = cz; z < cz + CH; z += spacing) for (let x = cx; x < cx + CH; x += spacing) {
         const jx = x + (hash2(x, z) - 0.5) * spacing * 0.9, jz = z + (hash2(z, x) - 0.5) * spacing * 0.9;
         const r = hash2(jx * 0.37, jz * 0.53);
-        if (r < 0.28) continue;                                             // thin it a little
+        if (r < keep) continue;
         const y = T.height(jx, jz);
         if (y < 3.5) continue;                                              // water / sand
         if (T.districtAt(jx, jz)) continue;
@@ -165,67 +212,101 @@ export class WorldBuilder {
         if (y > 260) kind = 0;
         spots[kind].push([jx, y, jz, 0.75 + r * 0.6, r * 6.28]);
       }
+      const near = new THREE.Group();
+      const fk = Math.floor((cx - WORLD.minX) / 600) * 1000 + Math.floor((cz - WORLD.minZ) / 600);   // far crowns pool per 600 m
+      if (!farPool.has(fk)) farPool.set(fk, { cx: WORLD.minX + (Math.floor((cx - WORLD.minX) / 600) + 0.5) * 600, cz: WORLD.minZ + (Math.floor((cz - WORLD.minZ) / 600) + 0.5) * 600, spots: [] });
+      const far = farPool.get(fk).spots;
+      let any = false;
       for (let k = 0; k < 4; k++) {
         if (!spots[k].length) continue;
-        const kd = kinds[k];
-        const trunks = new THREE.InstancedMesh(kd.trunk, mats[k].t, spots[k].length);
-        const leaves = new THREE.InstancedMesh(kd.leaf, mats[k].l, spots[k].length);
+        any = true;
+        const im = new THREE.InstancedMesh(treeGeo[k], mat, spots[k].length);
         spots[k].forEach(([x, y, z, s, rot], i) => {
-          dummy.position.set(x, y + 2.2 * s, z); dummy.scale.setScalar(s); dummy.rotation.set(0, rot, 0); dummy.updateMatrix(); trunks.setMatrixAt(i, dummy.matrix);
-          dummy.position.set(x, y + kd.leafY * s, z); dummy.updateMatrix(); leaves.setMatrixAt(i, dummy.matrix);
+          dummy.position.set(x, y, z); dummy.scale.setScalar(s); dummy.rotation.set(0, rot, 0); dummy.updateMatrix(); im.setMatrixAt(i, dummy.matrix);
+          im.setColorAt(i, tint.setScalar(0.85 + hash2(x, z) * 0.3));
+          far.push([x, y + kinds[k].leafY * s * 0.6, z, s, kinds[k].lc]);
         });
-        trunks.castShadow = leaves.castShadow = true;
-        trunks.frustumCulled = leaves.frustumCulled = false;
-        const grp = new THREE.Group(); grp.add(trunks, leaves);
-        grp.userData = { cx: cx + CH / 2, cz: cz + CH / 2 };
-        this.group.add(grp);
-        this.chunks.push(grp);
+        im.castShadow = Q.shadows;
+        im.computeBoundingSphere();
+        near.add(im);
         total += spots[k].length;
       }
+      if (!any) continue;
+      this.group.add(near);
+      this.chunks.push({ cx: cx + CH / 2, cz: cz + CH / 2, near });
+    }
+    // the far forest: one static mesh of crowns per 600 m, no instancing overhead
+    this.farChunks = [];
+    for (const f of farPool.values()) {
+      if (!f.spots.length) continue;
+      const farMesh = new THREE.Mesh(mergeColoured(f.spots.map(([x, y, z, s, lc]) => [farCone, 0, lc, x, y, z, s])), mat);
+      this.group.add(farMesh);
+      this.farChunks.push({ cx: f.cx, cz: f.cz, far: farMesh });
     }
     this.treeCount = total;
   }
 
   buildBeachAndPier() {
     // the pier deck stands on legs
-    const T = this.T;
+    const T = this.T, C = this.city;
     const pier = T.roads.find(r => r.type === 'pier');
     if (pier) {
-      const legM = new THREE.MeshLambertMaterial({ color: 0x5c4632 });
+      const wood = 0x5c4632;
       const legG = new THREE.CylinderGeometry(0.35, 0.35, 1, 6);
+      const M = new THREE.Matrix4();
       for (let s = 20; s < pier.L; s += 14) {
         const p = T.pointAt(pier, s), y = T.roadY(pier, s);
         for (const side of [-1, 1]) {
           const x = p.x + p.tz * side * (pier.T.w / 2 - 0.6), z = p.z - p.tx * side * (pier.T.w / 2 - 0.6);
           const bottom = Math.min(-8, T.base(x, z) - 2);
-          const leg = new THREE.Mesh(legG, legM);
-          leg.scale.y = y - bottom; leg.position.set(x, (y + bottom) / 2, z);
-          this.group.add(leg);
+          M.makeScale(1, y - bottom, 1).setPosition(x, (y + bottom) / 2, z);
+          C.mesh(legG, M, wood);
         }
       }
       // railings
-      const rail = new THREE.Mesh(new THREE.BoxGeometry(0.12, 1, pier.L), legM);
-      const mid = T.pointAt(pier, pier.L / 2);
+      const mid = T.pointAt(pier, pier.L / 2), yaw = Math.atan2(mid.tx, mid.tz);
       for (const side of [-1, 1]) {
-        const r2 = rail.clone();
-        r2.position.set(mid.x + mid.tz * side * (pier.T.w / 2), T.roadY(pier, pier.L / 2) + 0.5, mid.z - mid.tx * side * (pier.T.w / 2));
-        r2.rotation.y = Math.atan2(mid.tx, mid.tz);
-        this.group.add(r2);
+        C.box(mid.x + mid.tz * side * (pier.T.w / 2), T.roadY(pier, pier.L / 2), mid.z - mid.tx * side * (pier.T.w / 2), 0.12, 1, pier.L, yaw, wood, { ao: false, far: false });
       }
     }
   }
 
-  // draw only the forest chunks within reach of the camera
-  update(camX, camZ, reach = 1100) {
-    for (const g of this.chunks) {
-      const dx = g.userData.cx - camX, dz = g.userData.cz - camZ;
-      g.visible = dx * dx + dz * dz < reach * reach;
-    }
+  // draw only what's within reach: near trees, far crowns, near/far city cells
+  update(camX, camZ) {
+    const nr = Q.forestReach, fr = Q.forestFar;
+    for (const g of this.chunks) g.near.visible = Math.hypot(g.cx - camX, g.cz - camZ) < nr;
+    for (const g of this.farChunks) { const d = Math.hypot(g.cx - camX, g.cz - camZ); g.far.visible = d >= nr - 200 && d < fr; }
+    this.city.update(camX, camZ, Q.chunkNear, Q.chunkFar);
   }
 
   setAids() {}
   dispose() {
     this.scene.remove(this.group);
     this.group.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => m.dispose()); });
+    this.atlas.tex.dispose(); this.atlas.glow.dispose();
   }
+}
+
+// merge [geometry, yOffset, colour, x?, y?, z?, scale?] parts into one
+// non-indexed, vertex-coloured geometry
+function mergeColoured(parts) {
+  const pos = [], nrm = [], col = [];
+  const c = new THREE.Color(), P = new THREE.Vector3(), N = new THREE.Vector3();
+  for (const [g0, yOff, colour, x = 0, y = 0, z = 0, s = 1] of parts) {
+    const g = g0.index ? g0.toNonIndexed() : g0;
+    const p = g.attributes.position, n = g.attributes.normal;
+    c.set(colour);
+    for (let i = 0; i < p.count; i++) {
+      P.fromBufferAttribute(p, i);
+      pos.push(x + P.x * s, y + (P.y + yOff) * s, z + P.z * s);
+      N.fromBufferAttribute(n, i); nrm.push(N.x, N.y, N.z);
+      col.push(c.r, c.g, c.b);
+    }
+    if (g !== g0) g.dispose();
+  }
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  out.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
+  out.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  return out;
 }

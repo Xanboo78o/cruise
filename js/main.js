@@ -35,6 +35,8 @@ import { Items, ITEM_INFO } from './items.js';
 import { Bots } from './bots.js';
 import { Race, collideCars } from './race.js';
 import { Screens } from './menu.js';
+import { Q, QUALITY } from './quality.js';
+import { Stats } from './stats.js';
 
 const SKY_CYCLE = ['sunset', 'noon', 'dawn', 'night'];
 const MS = 2.23694;
@@ -50,9 +52,9 @@ let attract = false;                      // a race plays behind the title scree
 let cfg = { mode: 'race', bots: 7, laps: 3 };   // what the loaded track is running (attract overrides S)
 
 const app = document.getElementById('app');
-const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-renderer.shadowMap.enabled = true;
+const renderer = new THREE.WebGLRenderer({ antialias: Q.antialias, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(devicePixelRatio, Q.pixelRatioMax) * Q.renderScale);   // LOW renders at 0.6× and the browser scales it up
+renderer.shadowMap.enabled = Q.shadows;
 renderer.shadowMap.type = THREE.PCFShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.05;
@@ -63,6 +65,7 @@ const camera = new THREE.PerspectiveCamera(62, 1, 0.4, 5000);
 const rig = new CameraRig(camera);
 const input = new Input(renderer.domElement);
 const hud = new HUD(document.getElementById('hud'));
+const stats = new URLSearchParams(location.search).has('stats') ? new Stats(renderer) : null;
 const audio = new Audio();
 
 const car = new Car(S.carId, PRESETS);
@@ -130,6 +133,8 @@ function loadTrack(id, opts = {}) {
   const skyKey = SKY_CYCLE[S.skyIdx] || model.def.sky;
   skyMesh = makeSky(scene, skyKey);
   lights = applyLighting(scene, skyKey);
+  lights.dir.castShadow = Q.shadows;
+  if (Q.shadows) lights.dir.shadow.mapSize.set(Q.shadowMap, Q.shadowMap);
   world = model.buildWorld ? model.buildWorld(scene, skyKey) : new World(model, scene, { sky: skyKey });
   world.setAids(S.showLine, S.showBoards);
   skid = new SkidMarks(scene);
@@ -147,6 +152,7 @@ function loadTrack(id, opts = {}) {
   paceMesh.visible = false;
   scene.add(paceMesh);
   setHeadlights(carMesh, skyKey === 'night');
+  lightsNight = skyKey === 'night';                                        // the atlas glow and the headlights follow the clock from here
   setDriver(carMesh, S.oo || 'oobi');
   setStickers(carMesh, progress.data.stickers);
 
@@ -170,7 +176,7 @@ function startCruise() {
     peds = new Peds(scene, population, model.T);
     peds.onBounce = (a, c) => { if (c === car) { input.rumble(0.5, 0.2, 90); if (Math.random() < 0.35) hud.toast(['OO!', 'HA!', 'WHEEE', 'AGAIN!', 'NICE ONE'][Math.floor(Math.random() * 5)] + '  — ' + a.name, 1100); } };
     // traffic: named Oo in their own cars, following the roads
-    traffic = new Traffic(model.T, population, 22);
+    traffic = new Traffic(model.T, population, Q.traffic);
     traffic.onAdd = f => { f.mesh = buildCar(PRESETS[f.car.presetName]); setDriver(f.mesh, f.oo.variant); scene.add(f.mesh); };
     traffic.onRemove = f => { scene.remove(f.mesh); f.mesh = null; };
     traffic.populate(car.x, car.z, env, [car]);
@@ -209,7 +215,7 @@ function startRace() {
   if (items) items.dispose();
   items = new Items(model, scene);
   const pool = S.grid === 'equal' ? CAR_ORDER.filter(id => PRESETS[id].tier === PRESETS[S.carId].tier && id !== S.carId) : null;
-  bots = new Bots(model, cfg.bots, S.carId, { pool });
+  bots = new Bots(model, Math.min(cfg.bots, Q.bots), S.carId, { pool });
   for (const b of bots.list) { b.mesh = buildCar(PRESETS[b.id]); scene.add(b.mesh); }
   race = new Race(model, [{ car, name: car.p.label, isPlayer: true }, ...bots.list.map(b => ({ car: b.car, name: b.name }))], cfg.laps);
   race.grid();
@@ -443,6 +449,7 @@ function frame() {
   // the attract race never ends: a few seconds after the flag, another grid
   if (attract && race && race.state === 'finished') { attractT += dt; if (attractT > 5) { attractT = 0; startRace(); } }
 
+  if (stats) stats.physBegin();
   if (!S.frozen) {
     acc += dt;
     let steps = 0;
@@ -471,6 +478,7 @@ function frame() {
       }
       acc -= STEP; steps++;
     }
+    if (stats) stats.physEnd();
     if (race) {
       race.update(dt);
       if (race.lastEvent === 'go') { hud.toast('', 1); race.lastEvent = null; }
@@ -543,7 +551,7 @@ function frame() {
   if (freeRoam) {
     S.hour = (S.hour + dt * (24 / 1200)) % 24;
     // the live day: sky, fog and light follow the clock (a race holds its own time)
-    if (!worldRace && skyMesh && lights) { const s = skyForHour(S.hour); tintSky(skyMesh, lights, scene, s); if (s.night !== lightsNight) { lightsNight = s.night; setHeadlights(carMesh, s.night); } }
+    if (!worldRace && skyMesh && lights) { const s = skyForHour(S.hour); tintSky(skyMesh, lights, scene, s); if (s.night !== lightsNight) { lightsNight = s.night; setHeadlights(carMesh, s.night); if (world.setNight) world.setNight(s.night); } }
     const everyone = traffic && !worldRace ? [...allCars(), ...traffic.cars] : allCars();
     if (peds) peds.update(dt, camera.position.x, camera.position.z, everyone, S.hour, worldRace ? worldRace.rc.gate : null);
     // where you are, and the gates you can roll into
@@ -619,7 +627,8 @@ function frame() {
   });
 
   if (screens.current === 'car' || screens.current === 'track' || screens.current === 'who') screens.renderShowcase(renderer, camera.aspect);
-  else renderer.render(scene, camera);
+  else { if (stats) stats.renderBegin(); renderer.render(scene, camera); if (stats) stats.renderEnd(); }
+  if (stats) stats.update(dt);
   input.endFrame();
 }
 
@@ -793,6 +802,7 @@ if (q.has('bots')) S.bots = +q.get('bots');
 if (q.has('laps')) S.laps = +q.get('laps');
 if (q.has('grid')) S.grid = q.get('grid');
 if (q.has('oo')) S.oo = q.get('oo');
+if (q.has('hour')) S.hour = +q.get('hour');                                // ?hour=23: the city clock (screenshots)
 resize();
 if (q.has('go') || q.has('shorts')) {
   S.shorts = q.has('shorts');
@@ -811,4 +821,5 @@ if (q.has('go') || q.has('shorts')) {
   startAttract();
 }
 frame();
-window.CRUISE = { S, car, screens, get model() { return model; }, get race() { return race; }, get bots() { return bots; } };
+window.CRUISE = { S, car, screens, renderer, scene, camera, get model() { return model; }, get race() { return race; }, get bots() { return bots; },
+  get world() { return world; }, get traffic() { return traffic; }, get peds() { return peds; }, get carMesh() { return carMesh; } };   // debug handles (tools/shot.mjs breakdown)

@@ -120,7 +120,15 @@ export class ChallengeWorld {
   }
 
   // trip everything the player is doing right now. Returns an event or null.
+  // only what's within reach draws: a marker 2 km away is still a draw call
+  cull(x, z, reach = 650) {
+    if (!this.centres) { this.centres = new Map(); const b = new THREE.Box3(), c = new THREE.Vector3(); for (const o of this.group.children) { b.setFromObject(o).getCenter(c); this.centres.set(o, [c.x, c.z]); } }
+    for (const o of this.group.children) { const c = this.centres.get(o); if (c) o.visible = Math.hypot(c[0] - x, c[1] - z) < reach; }
+  }
+
   update(dt, car, cam) {
+    this.cullT = (this.cullT || 0) + dt;
+    if (this.cullT > 0.25) { this.cullT = 0; this.cull(car.x, car.z); }
     this.t += dt;
     let ev = null;
     for (const f of this.figs) { f.rotation.y = this.t * 1.5; f.position.y = this.T.height(f.userData.x, f.userData.z) + Math.sin(this.t * 3 + f.userData.i) * 0.15; }

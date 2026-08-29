@@ -276,3 +276,6 @@ body.nohud .tc { display: none; }
 
 #sCar.locked .bigName b { background: linear-gradient(92deg, #888, #aaa); -webkit-background-clip: text; background-clip: text; }
 #sCar.locked .carIdx { color: #ffcf9a; }
+
+/* ?stats=1 — the Chromebook numbers */
+#stats { position: fixed; left: 8px; bottom: 8px; z-index: 50; font: 12px/1.4 ui-monospace, monospace; color: #e8ffe8; background: rgba(0,0,0,.62); padding: 4px 8px; border-radius: 4px; pointer-events: none; white-space: nowrap; }

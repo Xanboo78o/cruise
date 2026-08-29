@@ -6,6 +6,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { VARIANTS } from './oo.js';
+import { Q } from '../quality.js';
 
 const loader = new GLTFLoader();
 const MAX = 260;
@@ -37,7 +38,7 @@ export class Peds {
       const k = 1.7 / h;                                                                    // 1.7 m tall
       geo.scale(k, k, k);
       const im = new THREE.InstancedMesh(geo, mat, MAX);
-      im.count = 0; im.castShadow = true; im.frustumCulled = false;
+      im.count = 0; im.castShadow = Q.shadows; im.frustumCulled = false;
       this.group.add(im);
       this.inst[v] = im;
     });
@@ -49,6 +50,7 @@ export class Peds {
     let near = this.pop.near(camX, camZ, focusRadius, hour, gate);
     // a crowd is a hundred and twenty, not four hundred
     let fans = 0; near = near.filter(e => e.state !== 'race' || fans++ < 120);
+    if (near.length > Q.peds) near = near.slice(0, Q.peds);              // the Chromebook's crowd is smaller
     const counts = {};
     for (const v of VARIANTS) counts[v] = 0;
     const d = this.dummy;
