@@ -221,6 +221,9 @@ export const PIECES = [
   R('deadtree', 'trees', 'DEAD TREE', null, P => P.tree(0, 0, 'dead', 0.8 + P.rnd(0) * 0.6)),
   R('cactus', 'trees', 'CACTUS', null, P => P.tree(0, 0, 'cactus', 0.7 + P.rnd(0) * 0.6)),
   R('cypress', 'trees', 'CYPRESS', null, P => P.tree(0, 0, 'cypress', 0.8 + P.rnd(0) * 0.5)),
+  R('grassclump', 'trees', 'TALL GRASS', null, P => { const c = P.color(null) ?? P.pick([0x7fa24a, 0x9a9a4a, 0x6a8a3a, 0x8fb050], 0); for (let i = 0; i < 7; i++) P.mesh(GEO.cone6, (P.rnd(i) - 0.5) * 2.2, 0.45, (P.rnd(i + 7) - 0.5) * 2.2, 0.16, 0.9 + P.rnd(i + 3) * 0.7, 0.16, c, { tilt: (P.rnd(i + 5) - 0.5) * 0.5 }); }),
+  R('flowers', 'trees', 'FLOWERS', null, P => { for (let i = 0; i < 6; i++) { const x = (P.rnd(i) - 0.5) * 2.4, z = (P.rnd(i + 9) - 0.5) * 2.4; P.mesh(GEO.cyl6, x, 0.2, z, 0.03, 0.4, 0.03, 0x4f8a3a); P.mesh(GEO.ico, x, 0.45, z, 0.14, 0.12, 0.14, P.pick([0xff6b8f, 0xffe066, 0xf0ece0, 0xff9a5c, 0x7ea6ff], i)); } }),
+  R('shrub', 'trees', 'SHRUB', null, P => P.tree(0, 0, 'bush', 0.5 + P.rnd(0) * 0.4, P.pick([0x4f8a3a, 0x6a8a5a, 0x9a9a4a], 1))),
   R('grove', 'trees', 'GROVE ×5', null, P => { for (let i = 0; i < 5; i++) P.tree((P.rnd(i) - 0.5) * 14, (P.rnd(i + 9) - 0.5) * 14, P.pick(['pine', 'broad', 'autumn'], i), 0.8 + P.rnd(i + 3) * 0.6); }),
 
   // ------------------------------------------------------------------ ROCKS
@@ -260,7 +263,7 @@ export const PIECES = [
 ];
 
 export const CATS = [
-  ['houses', 'HOUSES'], ['buildings', 'BUILDINGS'], ['lights', 'LIGHTS'], ['trees', 'TREES'], ['rocks', 'ROCKS'], ['props', 'PROPS'], ['roads', 'ROADS'], ['terrain', 'TERRAIN'],
+  ['houses', 'HOUSES'], ['buildings', 'BUILDINGS'], ['lights', 'LIGHTS'], ['trees', 'TREES'], ['rocks', 'ROCKS'], ['props', 'PROPS'], ['roads', 'ROADS'], ['terrain', 'TERRAIN'], ['foliage', 'FOLIAGE'],
 ];
 export const BY_ID = Object.fromEntries(PIECES.map(p => [p.id, p]));
 

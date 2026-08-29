@@ -15,7 +15,15 @@ import { saveCityDoc, exportCityDoc, importCityDoc, clearDraft, probeServer } fr
 
 const ROAD_COL = { highway: 0xf5c145, blvd: 0xffd98a, street: 0xd8d4cc, hill: 0xff9a5c, coast: 0x7ed3ff, gravel: 0xc9a36a, canyon: 0xff6b3d, mine: 0xffe066, pier: 0xffffff, sand: 0xf7e7b0 };
 const ROAD_ORDER = ['street', 'blvd', 'highway', 'hill', 'coast', 'gravel', 'canyon', 'mine', 'pier', 'sand'];
-const BRUSHES = [['raise', 'RAISE'], ['lower', 'LOWER'], ['flatten', 'FLATTEN'], ['smooth', 'SMOOTH'], ['paint', 'PAINT']];
+const BRUSHES = [['raise', 'RAISE'], ['lower', 'LOWER'], ['level', 'RAISE TO HEIGHT'], ['flatten', 'FLATTEN'], ['smooth', 'SMOOTH'], ['paint', 'PAINT']];
+// foliage brushes: [id, name, pieces to scatter, spacing m]
+const FOLIAGE = [
+  ['pine', 'PINE FOREST', ['pine', 'pine', 'tallpine'], 9], ['broad', 'BROADLEAF', ['broadleaf', 'broadleaf', 'oak'], 11],
+  ['mixed', 'MIXED FOREST', ['pine', 'broadleaf', 'autumn', 'tallpine', 'bush'], 9], ['palms', 'PALMS', ['palm', 'tallpalm'], 10],
+  ['autumn', 'AUTUMN', ['autumn', 'autumn', 'broadleaf'], 10], ['bushes', 'BUSHES', ['bush', 'shrub'], 4.5],
+  ['grass', 'TALL GRASS', ['grassclump'], 3.2], ['flowers', 'FLOWERS', ['flowers', 'grassclump'], 3], ['desert', 'DESERT', ['cactus', 'deadtree', 'shrub'], 9],
+  ['erase', 'ERASE FOLIAGE', null, 0],
+];
 const hex = c => '#' + c.toString(16).padStart(6, '0');
 const spline = pts => pts.length > 2 ? resample(pts.map(([x, z]) => ({ x, z, y: 0 })), false, 4).map(p => [p.x, p.z]) : pts;
 
@@ -25,7 +33,8 @@ export class Editor {
     this.ctx = ctx; this.doc = ctx.doc; this.active = false; this.maker = !!ctx.maker;
     this.tool = 'place'; this.cat = 'houses'; this.piece = PIECES[0];
     this.rot = 0; this.scale = 1; this.colorIdx = null; this.seed = 1; this.text = null; this.snap = false;
-    this.brush = { kind: 'raise', r: 30, amount: 1, color: 3 };
+    this.brush = { kind: 'raise', r: 40, amount: 1, color: 1, height: 80, density: 1, foliage: 'mixed' };
+    this.flushT = 0;
     this.target = new THREE.Vector3(); this.orbit = { yaw: 0, pitch: 0.75, dist: 140 };
     this.cursor = null; this.hover = null; this.selected = null; this.hoverRoad = -1; this.roadSel = -1; this.hoverHandle = -1;
     this.roadType = 'street'; this.roadPts = []; this.roadsDirty = false;
@@ -107,7 +116,7 @@ export class Editor {
     cam.lookAt(this.target);
     if (cam.fov !== 55) { cam.fov = 55; cam.updateProjectionMatrix(); }
     this.updateCursor();
-    if (this.mouse.brush && this.cursor && this.tool === 'terrain') this.strokeStep(dt);
+    if (this.mouse.brush && this.cursor && (this.tool === 'terrain' || this.tool === 'foliage')) this.strokeStep(dt);
     if (this.mouse.dragObj && this.dragDirty) { this.dragDirty = false; this.edits.touch(this.mouse.dragObj); this.edits.flush(); }
     if (this.ghostDirty) this.ghostBuild();
     this.updateHelpers();
@@ -140,9 +149,10 @@ export class Editor {
     if (this.tool === 'road') {
       if (this.roadSel >= 0) { const pts = this.doc.roads[this.roadSel].pts; let bd = 6; pts.forEach(([x, z], i) => { const dd = Math.hypot(x - p.x, z - p.z); if (dd < bd) { bd = dd; this.hoverHandle = i; } }); }
       if (this.hoverHandle < 0 && this.T) { const n = this.T.nearestRoad(p.x, p.z); if (n && n.d < n.road.T.w / 2 + 3) this.hoverRoad = n.road.idx; }
-    } else if (this.tool !== 'terrain') {
+    } else if (this.tool !== 'terrain' && this.tool !== 'foliage') {
       let best = null, bd = 1e9;
       for (const ob of this.doc.objects) {
+        if (ob.f && this.tool !== 'select') continue;
         const fp = footprint(ob); const rad = fp ? Math.max(fp[2], fp[3]) / 2 + 1 : 3.5;
         const dd = Math.hypot(ob.x - p.x, ob.z - p.z);
         if (dd < rad && dd < bd) { bd = dd; best = ob; }
@@ -178,7 +188,7 @@ export class Editor {
     box.position.set(ob.x, y + 3, ob.z); box.scale.set(w + 1, 6, d + 1); box.visible = true;
   }
   updateHelpers() {
-    const road = this.tool === 'road', terrain = this.tool === 'terrain';
+    const road = this.tool === 'road', terrain = this.tool === 'terrain' || this.tool === 'foliage';
     if (this.hover && !road && !terrain) this.boxFor(this.hover, this.hoverBox); else this.hoverBox.visible = false;
     if (this.selected && !terrain) this.boxFor(this.selected, this.selBox); else this.selBox.visible = false;
     if (road) {
@@ -190,7 +200,7 @@ export class Editor {
       this.handles.children.forEach((h, i) => h.material = i === this.hoverHandle || i === this.mouse.dragHandle ? this.handleHotMat : this.handleMat);
     } else { this.roadPreview.visible = this.roadHover.visible = this.roadSelRib.visible = false; }
     this.handles.visible = road;
-    if (terrain && this.cursor) { const y = this.ctx.getModel().heightAt(this.cursor.x, this.cursor.z); this.ring.position.set(this.cursor.x, y + 0.4, this.cursor.z); this.ring.scale.setScalar(this.brush.r); this.ring.visible = true; this.ring.material.color.set(this.brush.kind === 'paint' ? (PAINT[this.brush.color] || new THREE.Color(0xffffff)) : 0xffe066); }
+    if (terrain && this.cursor) { const y = this.ctx.getModel().heightAt(this.cursor.x, this.cursor.z); this.ring.position.set(this.cursor.x, y + 0.4, this.cursor.z); this.ring.scale.setScalar(this.brush.r); this.ring.visible = true; this.ring.material.color.set(this.tool === 'foliage' ? (this.brush.foliage === 'erase' ? 0xff4040 : 0x6fe3a0) : this.brush.kind === 'paint' ? (PAINT[this.brush.color] || new THREE.Color(0xffffff)) : 0xffe066); }
     else this.ring.visible = false;
   }
   // a flat ribbon along points, lifted off the ground
@@ -219,10 +229,11 @@ export class Editor {
     r.pts.forEach(([x, z], i) => { const h = this.handles.children[i]; if (!h) return; h.position.set(x, m.heightAt(x, z) + 1.5, z); h.scale.setScalar(s); });
   }
 
-  // ------------------------------------------------------------------ terrain strokes
+  // ------------------------------------------------------------------ brush strokes (terrain + foliage)
   strokeStart() {
     if (!this.cursor || !this.T) return;
     const T = this.T;
+    if (this.tool === 'foliage') { this.pushUndo(); this.mouse.brush = true; this.flushT = 0; this.strokeStep(1 / 60); return; }
     this.terrainUndo.push({ dh: T.dh.slice(), paint: T.paint.slice(), empty: T.dhEmpty });
     if (this.terrainUndo.length > 8) this.terrainUndo.shift();
     this.brush.target = T.land(this.cursor.x, this.cursor.z);
@@ -231,12 +242,39 @@ export class Editor {
   strokeStep(dt) {
     const b = this.brush, c = this.cursor, T = this.T, w = this.ctx.getWorld();
     if (!T || !w) return;
-    const amt = b.kind === 'raise' || b.kind === 'lower' ? b.amount * 9 * dt : b.kind === 'paint' ? 1 : Math.min(1, b.amount * 4 * dt);
-    T.brush(c.x, c.z, b.r, b.kind, amt, { target: b.target, color: b.color });
+    const fast = this.ctx.input.keys.has('shift') ? 5 : 1;                 // shift: mountains in ten seconds
+    if (this.tool === 'foliage') { this.foliageStep(dt * fast); return; }
+    const kind = b.kind === 'level' ? 'flatten' : b.kind;
+    const amt = kind === 'raise' || kind === 'lower' ? b.amount * 12 * dt * fast : kind === 'paint' ? 1 : Math.min(1, b.amount * 4 * dt * fast);
+    T.brush(c.x, c.z, b.r, kind, amt, { target: b.kind === 'level' ? b.height : b.target, color: b.color });
     w.terrainRefresh(c.x, c.z, b.r + 12);
     this.doc.terrainDirty = true;
   }
-  strokeEnd() { if (!this.mouse.brush) return; this.mouse.brush = false; this.save(); }
+  strokeEnd() { if (!this.mouse.brush) return; this.mouse.brush = false; if (this.edits) this.edits.flush(); this.save(); }
+  // scatter (or erase) foliage inside the ring: pieces tagged f so ERASE only takes these
+  foliageStep(dt) {
+    const b = this.brush, c = this.cursor, T = this.T, E = this.edits; if (!E) return;
+    const f = FOLIAGE.find(x => x[0] === b.foliage); if (!f) return;
+    if (b.foliage === 'erase') {
+      const gone = E.removeWhere(E.near(c.x, c.z, b.r), o => o.f);
+      if (gone.length) { const set = new Set(gone); this.doc.objects = this.doc.objects.filter(o => !set.has(o)); }
+    } else {
+      const [, , kinds, spacing] = f;
+      const want = Math.PI * b.r * b.r / (spacing * spacing) * b.density;
+      const n = Math.max(1, Math.min(80, Math.round(want * dt * 2.2)));
+      for (let i = 0; i < n; i++) {
+        const a = Math.random() * Math.PI * 2, d = Math.sqrt(Math.random()) * b.r;
+        const x = c.x + Math.cos(a) * d, z = c.z + Math.sin(a) * d;
+        if (T.height(x, z) < 1.5) continue;
+        const nr = T.nearestRoad(x, z); if (nr && nr.d < nr.road.T.w / 2 + 3) continue;
+        if (E.near(x, z, spacing * 0.7 / Math.sqrt(b.density)).length) continue;
+        const o = { k: kinds[Math.floor(Math.random() * kinds.length)], x: +x.toFixed(1), z: +z.toFixed(1), r: Math.floor(Math.random() * 360), s: +(0.75 + Math.random() * 0.6).toFixed(2), seed: Math.floor(Math.random() * 100000), f: 1 };
+        this.doc.objects.push(o); E.add(o);
+      }
+    }
+    this.flushT += dt;
+    if (this.flushT > 0.12) { this.flushT = 0; E.flush(); }
+  }
   undoTerrain() {
     const u = this.terrainUndo.pop(); if (!u || !this.T) return false;
     this.T.dh.set(u.dh); this.T.paint.set(u.paint); this.T.dhEmpty = u.empty;
@@ -331,7 +369,7 @@ export class Editor {
       if (e.button === 1) { this.mouse.pan = true; e.preventDefault(); return; }
       if (e.button !== 0) return;
       this.updateCursor();
-      if (this.tool === 'terrain') { this.strokeStart(); return; }
+      if (this.tool === 'terrain' || this.tool === 'foliage') { this.strokeStart(); return; }
       if (this.tool === 'road') {
         if (!this.cursor) return;
         if (this.hoverHandle >= 0) { this.pushUndo(); this.mouse.dragHandle = this.hoverHandle; return; }
@@ -372,7 +410,7 @@ export class Editor {
     el.addEventListener('wheel', e => {
       if (!this.active) return;
       if (e.ctrlKey) { e.preventDefault(); const d = e.deltaY > 0 ? -5 : 5; if (this.selected) this.changeSel(o => o.r = ((o.r || 0) + d + 360) % 360); else { this.rot = (this.rot + d + 360) % 360; this.ghostDirty = true; } this.refreshStatus(); return; }
-      if (e.shiftKey || this.tool === 'terrain' && e.altKey) { this.brush.r = Math.max(4, Math.min(400, this.brush.r * (e.deltaY > 0 ? 0.87 : 1.15))); this.refreshStatus(); return; }
+      if (e.shiftKey || ((this.tool === 'terrain' || this.tool === 'foliage') && e.altKey)) { this.brush.r = Math.max(4, Math.min(600, this.brush.r * (e.deltaY > 0 ? 0.87 : 1.15))); this.syncSliders(); this.refreshStatus(); return; }
       this.orbit.dist = Math.max(12, Math.min(2500, this.orbit.dist * (1 + e.deltaY * 0.0012)));
       this.placeHandles();
     }, { passive: false });
@@ -396,9 +434,9 @@ export class Editor {
       else if (k === 't') { const r = Math.floor(Math.random() * 24) * 15; if (this.selected) this.changeSel(o => o.r = r); else { this.rot = r; this.ghostDirty = true; } }
       else if (k === 'v') { const c = Math.floor(Math.random() * PALETTE.length), s = Math.floor(Math.random() * 100000); if (this.selected) this.changeSel(o => { o.c = c; o.seed = s; }); else { this.colorIdx = c; this.seed = s; this.ghostDirty = true; } this.refreshSwatches(); }
       else if (k === 'c') { const next = this.colorIdx == null ? 0 : (this.colorIdx + 1) % (PALETTE.length + 1); const c = next === PALETTE.length ? null : next; if (this.selected) this.changeSel(o => { if (c == null) delete o.c; else o.c = c; }); else { this.colorIdx = c; this.ghostDirty = true; } this.refreshSwatches(); }
-      else if (k === '[' || k === ']') { const f = k === '[' ? 0.9 : 1.1; if (this.tool === 'terrain') this.brush.r = Math.max(4, Math.min(400, this.brush.r * (k === '[' ? 0.85 : 1.18))); else if (this.selected) this.changeSel(o => o.s = +Math.max(0.3, Math.min(4, (o.s || 1) * f)).toFixed(2)); else { this.scale = +Math.max(0.3, Math.min(4, this.scale * f)).toFixed(2); this.ghostDirty = true; } }
-      else if (k === '-' || k === '=') { this.brush.amount = +Math.max(0.1, Math.min(4, this.brush.amount * (k === '-' ? 0.8 : 1.25))).toFixed(2); }
-      else if (k === 'delete' || k === 'backspace') { e.preventDefault(); if (this.tool === 'road') { if (this.roadPts.length) this.roadPts.pop(); else if (this.hoverHandle >= 0) this.roadRemovePoint(this.hoverHandle); else if (this.roadSel >= 0 && this.hoverRoad === this.roadSel) this.roadDelete(this.roadSel); else if (this.hoverRoad >= 0) this.roadDelete(this.hoverRoad); } else if (this.tool !== 'terrain') this.removeObj(this.selected || this.hover); }
+      else if (k === '[' || k === ']') { const f = k === '[' ? 0.9 : 1.1; if (this.tool === 'terrain' || this.tool === 'foliage') { this.brush.r = Math.max(4, Math.min(600, this.brush.r * (k === '[' ? 0.85 : 1.18))); this.syncSliders(); } else if (this.selected) this.changeSel(o => o.s = +Math.max(0.3, Math.min(4, (o.s || 1) * f)).toFixed(2)); else { this.scale = +Math.max(0.3, Math.min(4, this.scale * f)).toFixed(2); this.ghostDirty = true; } }
+      else if (k === '-' || k === '=') { this.brush.amount = +Math.max(0.1, Math.min(4, this.brush.amount * (k === '-' ? 0.8 : 1.25))).toFixed(2); this.syncSliders(); }
+      else if (k === 'delete' || k === 'backspace') { e.preventDefault(); if (this.tool === 'road') { if (this.roadPts.length) this.roadPts.pop(); else if (this.hoverHandle >= 0) this.roadRemovePoint(this.hoverHandle); else if (this.roadSel >= 0 && this.hoverRoad === this.roadSel) this.roadDelete(this.roadSel); else if (this.hoverRoad >= 0) this.roadDelete(this.hoverRoad); } else if (this.tool !== 'terrain' && this.tool !== 'foliage') this.removeObj(this.selected || this.hover); }
       else if (k === 'enter') { if (this.tool === 'road') this.roadFinish(); }
       else if (k === 'x') { this.setTool(this.tool === 'select' ? 'place' : 'select'); }
       else if (k === 'g') { this.snap = !this.snap; this.ctx.hud.toast('SNAP ' + (this.snap ? 'ON · 2 m' : 'OFF'), 900); }
@@ -406,7 +444,7 @@ export class Editor {
       else if (k === 'f') { this.target.set(this.ctx.car.x, 0, this.ctx.car.z); }
       else if (k === 'n') { const t = prompt('Sign text', this.text || ''); if (t != null) { this.text = t.trim() || null; if (this.selected) this.changeSel(o => { if (this.text) o.text = this.text; else delete o.text; }); this.ghostDirty = true; } }
       else if (k === 'z') { this.undo(); }
-      else if (/^[1-8]$/.test(k)) { this.setCat(CATS[+k - 1][0]); }
+      else if (/^[1-9]$/.test(k) && CATS[+k - 1]) { this.setCat(CATS[+k - 1][0]); }
       else if (k === 'tab') { e.preventDefault(); if (this.tool === 'terrain') { const i = BRUSHES.findIndex(b => b[0] === this.brush.kind); this.brush.kind = BRUSHES[(i + 1) % BRUSHES.length][0]; this.refreshList(); } else { const list = PIECES.filter(p => p.cat === this.cat); const i = list.indexOf(this.piece); this.setPiece(list[(i + (e.shiftKey ? -1 : 1) + list.length) % list.length]); } }
       this.refreshStatus();
     });
@@ -420,13 +458,19 @@ export class Editor {
       <div class="ctTabs" id="ctTabs"></div>
       <div class="ctList" id="ctList"></div>
       <div class="ctSwatches" id="ctSwatches"></div>
+      <div class="ctSliders" id="ctSliders">
+        <label>SIZE <b id="slRadiusV"></b><input type="range" id="slRadius" min="0" max="1000" value="0"></label>
+        <label data-for="strength">STRENGTH <b id="slAmountV"></b><input type="range" id="slAmount" min="0" max="1000" value="0"></label>
+        <label data-for="height">HEIGHT <b id="slHeightV"></b><input type="range" id="slHeight" min="-80" max="700" value="80"></label>
+        <label data-for="density">DENSITY <b id="slDensityV"></b><input type="range" id="slDensity" min="20" max="300" value="100"></label>
+      </div>
       <div class="ctRow" id="ctReadout"></div>
       <div class="ctBtns">
         <button data-act="drive">${this.maker ? 'DRIVE HERE · B' : 'DRIVE HERE'}</button><button data-act="select">SELECT · X</button><button data-act="apply">APPLY ROADS</button><button data-act="undo">UNDO · Ctrl+Z</button>
         <button data-act="base">BASE</button><button data-act="autofill">OLD DISTRICTS</button><button data-act="export">EXPORT</button><button data-act="import">IMPORT</button>
         <button data-act="reset">RESET DRAFT</button>${this.maker ? '' : '<button data-act="exit">EXIT · B</button>'}
       </div>
-      <div class="ctHint">click place · shift-drag brush · drag a selected piece to move it · right-drag orbit · middle-drag pan · wheel zoom · ctrl+wheel rotate 5° · WASD move · Q/E turn · R rotate · T random · V reroll · C colour · [ ] size · N sign text · Del remove · G snap · H hide · 1-8 tabs · Tab next<br>TERRAIN: drag to sculpt · [ ] or shift+wheel radius · - = strength · ROADS: click points, Enter finishes; click a road to select, drag its handles, shift-click to add a point, Del on a handle removes it</div>`;
+      <div class="ctHint">click place · shift-drag brush · drag a selected piece to move it · right-drag orbit · middle-drag pan · wheel zoom · ctrl+wheel rotate 5° · WASD move · Q/E turn · R rotate · T random · V reroll · C colour · [ ] size · N sign text · Del remove · G snap · H hide · 1-9 tabs · Tab next<br>TERRAIN: drag to sculpt (SHIFT = ×5) · [ ] or shift+wheel radius · - = strength · ROADS: click points, Enter finishes; click a road to select, drag its handles, shift-click to add a point, Del on a handle removes it</div>`;
     document.body.appendChild(root);
     root.addEventListener('pointerdown', e => e.stopPropagation());
     root.addEventListener('wheel', e => e.stopPropagation(), { passive: true });
@@ -448,9 +492,27 @@ export class Editor {
     const sw = root.querySelector('#ctSwatches');
     const auto = document.createElement('button'); auto.textContent = 'AUTO'; auto.dataset.c = ''; auto.onclick = () => { this.colorIdx = null; this.ghostDirty = true; this.refreshSwatches(); }; sw.appendChild(auto);
     PALETTE.forEach((c, i) => { const b = document.createElement('button'); b.style.background = hex(c); b.dataset.c = i; b.title = hex(c); b.onclick = () => { if (this.selected) this.changeSel(o => o.c = i); this.colorIdx = i; this.ghostDirty = true; this.refreshSwatches(); }; sw.appendChild(b); });
+    // the sliders: size is logarithmic 4..600 m, strength 0.1..4
+    const R = root.querySelector('#slRadius'), A = root.querySelector('#slAmount'), Hh = root.querySelector('#slHeight'), D = root.querySelector('#slDensity');
+    R.oninput = () => { this.brush.r = 4 * Math.pow(150, R.value / 1000); this.syncSliders(); this.refreshStatus(); };
+    A.oninput = () => { this.brush.amount = +(0.1 * Math.pow(40, A.value / 1000)).toFixed(2); this.syncSliders(); this.refreshStatus(); };
+    Hh.oninput = () => { this.brush.height = +Hh.value; this.syncSliders(); this.refreshStatus(); };
+    D.oninput = () => { this.brush.density = D.value / 100; this.syncSliders(); this.refreshStatus(); };
+    this.syncSliders();
     this.setCat('houses');
   }
-  setTool(t) { this.tool = t; this.ghostDrop(); this.ghostDirty = true; this.roadPts = []; this.refreshStatus(); this.root.querySelectorAll('.ctBtns button[data-act=select]').forEach(b => b.classList.toggle('on', t === 'select')); }
+  syncSliders() {
+    const q = id => this.root.querySelector(id), b = this.brush;
+    q('#slRadius').value = Math.round(1000 * Math.log(b.r / 4) / Math.log(150)); q('#slRadiusV').textContent = Math.round(b.r) + ' m';
+    q('#slAmount').value = Math.round(1000 * Math.log(b.amount / 0.1) / Math.log(40)); q('#slAmountV').textContent = b.amount;
+    q('#slHeight').value = b.height; q('#slHeightV').textContent = b.height + ' m';
+    q('#slDensity').value = Math.round(b.density * 100); q('#slDensityV').textContent = b.density.toFixed(2);
+    const sl = q('#ctSliders'); sl.classList.toggle('on', this.tool === 'terrain' || this.tool === 'foliage');
+    sl.querySelector('[data-for=strength]').style.display = this.tool === 'terrain' && b.kind !== 'paint' ? '' : 'none';
+    sl.querySelector('[data-for=height]').style.display = this.tool === 'terrain' && b.kind === 'level' ? '' : 'none';
+    sl.querySelector('[data-for=density]').style.display = this.tool === 'foliage' ? '' : 'none';
+  }
+  setTool(t) { this.tool = t; this.ghostDrop(); this.ghostDirty = true; this.roadPts = []; this.syncSliders(); this.refreshStatus(); this.root.querySelectorAll('.ctBtns button[data-act=select]').forEach(b => b.classList.toggle('on', t === 'select')); }
   setCat(id) {
     this.cat = id;
     this.root.querySelectorAll('#ctTabs button').forEach(b => b.classList.toggle('on', b.dataset.cat === id));
@@ -459,12 +521,15 @@ export class Editor {
       for (const t of ROAD_ORDER) { const b = document.createElement('button'); b.textContent = `${ROAD_TYPES[t].name.toUpperCase()} · ${ROAD_TYPES[t].w} m`; b.style.borderLeftColor = hex(ROAD_COL[t]); b.dataset.road = t; b.onclick = () => { if (this.roadSel >= 0) this.roadSetType(t); this.roadType = t; if (this.tool !== 'road') this.setTool('road'); this.refreshList(); }; list.appendChild(b); }
       this.setTool('road');
     } else if (id === 'terrain') {
-      for (const [k, name] of BRUSHES) { const b = document.createElement('button'); b.textContent = name; b.dataset.brush = k; b.onclick = () => { this.brush.kind = k; this.refreshList(); this.refreshStatus(); }; list.appendChild(b); }
-      PAINT_NAMES.forEach((name, i) => { if (!i) return; const b = document.createElement('button'); b.textContent = name; b.dataset.paint = i; b.style.borderLeftColor = hex(PAINT[i].getHex()); b.onclick = () => { this.brush.kind = 'paint'; this.brush.color = i; this.refreshList(); this.refreshStatus(); }; list.appendChild(b); });
+      for (const [k, name] of BRUSHES) { const b = document.createElement('button'); b.textContent = name; b.dataset.brush = k; b.onclick = () => { this.brush.kind = k; this.refreshList(); this.syncSliders(); this.refreshStatus(); }; list.appendChild(b); }
+      PAINT_NAMES.forEach((name, i) => { if (!i) return; const b = document.createElement('button'); b.textContent = name; b.dataset.paint = i; b.style.borderLeftColor = hex(PAINT[i].getHex()); b.onclick = () => { this.brush.kind = 'paint'; this.brush.color = i; this.refreshList(); this.syncSliders(); this.refreshStatus(); }; list.appendChild(b); });
       this.setTool('terrain');
+    } else if (id === 'foliage') {
+      for (const [k, name] of FOLIAGE) { const b = document.createElement('button'); b.textContent = name; b.dataset.foliage = k; b.style.borderLeftColor = k === 'erase' ? '#ff4040' : '#6fe3a0'; b.onclick = () => { this.brush.foliage = k; this.refreshList(); this.refreshStatus(); }; list.appendChild(b); }
+      this.setTool('foliage');
     } else {
       for (const p of PIECES.filter(p => p.cat === id)) { const b = document.createElement('button'); b.textContent = p.name; b.dataset.piece = p.id; b.onclick = () => this.setPiece(p); list.appendChild(b); }
-      if (this.tool === 'road' || this.tool === 'terrain') this.setTool('place');
+      if (this.tool === 'road' || this.tool === 'terrain' || this.tool === 'foliage') this.setTool('place');
       if (this.piece.cat !== id) this.setPiece(PIECES.find(p => p.cat === id));
     }
     this.refreshList();
@@ -473,7 +538,7 @@ export class Editor {
   refreshList() {
     this.root.querySelectorAll('#ctList button').forEach(b => b.classList.toggle('on',
       b.dataset.piece ? b.dataset.piece === this.piece.id : b.dataset.road ? b.dataset.road === (this.roadSel >= 0 && this.doc.roads[this.roadSel] ? this.doc.roads[this.roadSel].type : this.roadType)
-        : b.dataset.brush ? b.dataset.brush === this.brush.kind : b.dataset.paint ? (this.brush.kind === 'paint' && +b.dataset.paint === this.brush.color) : false));
+        : b.dataset.brush ? b.dataset.brush === this.brush.kind : b.dataset.paint ? (this.brush.kind === 'paint' && +b.dataset.paint === this.brush.color) : b.dataset.foliage ? b.dataset.foliage === this.brush.foliage : false));
   }
   refreshSwatches() { this.root.querySelectorAll('#ctSwatches button').forEach(b => b.classList.toggle('on', (b.dataset.c === '' && this.colorIdx == null) || (b.dataset.c !== '' && +b.dataset.c === this.colorIdx))); }
   refreshStatus() {
@@ -481,7 +546,8 @@ export class Editor {
     if (!st) return;
     st.textContent = `${this.doc.objects.length} placed · ${this.doc.roads ? this.doc.roads.length + ' roads' : 'spec roads'} · ${this.doc.base === 'flat' ? 'flat base' : 'san oozi base'} · ${this.status.saved}${this.status.server === false ? ' (no server)' : ''}${this.roadsDirty ? ' · ROADS NEED APPLY' : ''}`;
     const sel = this.selected, b = this.brush;
-    ro.textContent = this.tool === 'terrain' ? `${b.kind.toUpperCase()}${b.kind === 'paint' ? ' · ' + PAINT_NAMES[b.color] : ''} · radius ${Math.round(b.r)} m · strength ${b.amount} · drag on the ground`
+    ro.textContent = this.tool === 'terrain' ? `${b.kind === 'level' ? 'RAISE TO ' + b.height + ' m' : b.kind.toUpperCase()}${b.kind === 'paint' ? ' · ' + PAINT_NAMES[b.color] : ''} · size ${Math.round(b.r)} m · strength ${b.amount} · drag on the ground · hold SHIFT for ×5`
+      : this.tool === 'foliage' ? `${FOLIAGE.find(x => x[0] === b.foliage)[1]} · size ${Math.round(b.r)} m · density ${b.density.toFixed(2)} · drag to scatter · SHIFT ×5`
       : sel ? `SELECTED ${BY_ID[sel.k]?.name || sel.k} · rot ${sel.r || 0}° · size ${sel.s || 1} · drag to move · R/V/C/[ ]/N edit · Del remove`
       : this.tool === 'road' ? (this.roadSel >= 0 ? `ROAD ${this.doc.roads[this.roadSel]?.name || '#' + this.roadSel} · ${ROAD_TYPES[this.doc.roads[this.roadSel]?.type]?.name} · drag handles · shift-click adds a point · Del on a handle removes it · pick a type to change it · ESC deselect`
         : `ROAD · ${ROAD_TYPES[this.roadType].name} · click points (3+ = a curve) · ENTER finish · click a road to select it · shift-click a road removes it`)

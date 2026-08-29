@@ -13,9 +13,34 @@ import { CityAtlas, Chunks, GlowLayer } from './chunks.js';
 import { Q } from '../quality.js';
 
 const sm = t => { t = Math.max(0, Math.min(1, t)); return t * t * (3 - 2 * t); };
-// the map maker's paint: index → ground colour (0 = none)
-export const PAINT = [null, new THREE.Color(0x4e7a3f), new THREE.Color(0x9a9a4a), new THREE.Color(0xd9c78f), new THREE.Color(0x8a6a4a), new THREE.Color(0x8a7a66), new THREE.Color(0x4a4f58), new THREE.Color(0xe8e6e0), new THREE.Color(0xb5613f), new THREE.Color(0x2b6b8a)];
-export const PAINT_NAMES = ['NONE', 'GRASS', 'DRY GRASS', 'SAND', 'DIRT', 'ROCK', 'ASPHALT', 'SNOW', 'RED ROCK', 'WATER'];
+// the map maker's paint: index → ground colour (0 = none = the automatic rules)
+export const PAINT = [null,
+  new THREE.Color(0x4e7a3f), new THREE.Color(0x3f7a3a), new THREE.Color(0x9a9a4a), new THREE.Color(0x7fa24a), new THREE.Color(0x6a8a5a),
+  new THREE.Color(0xd9c78f), new THREE.Color(0x8a6a4a), new THREE.Color(0x8a7a66), new THREE.Color(0x4a4f58), new THREE.Color(0xe8e6e0), new THREE.Color(0xb5613f), new THREE.Color(0x2b6b8a)];
+export const PAINT_NAMES = ['AUTO', 'GRASS', 'LUSH GRASS', 'DRY GRASS', 'MEADOW', 'ALPINE GRASS', 'SAND', 'DIRT', 'ROCK', 'ASPHALT', 'SNOW', 'RED ROCK', 'WATER'];
+
+// a seamless bit of ground grain so the land reads: periodic value noise,
+// four octaves, tiled every 16 m by world-space UVs, ±8 % around 0.93
+let groundTex = null;
+function groundTexture() {
+  if (groundTex) return groundTex;
+  const N = 256, c = document.createElement('canvas'); c.width = c.height = N;
+  const g = c.getContext('2d'), img = g.createImageData(N, N);
+  const lat = (n, seed) => { const a = new Float32Array(n * n); for (let i = 0; i < n * n; i++) { const h = Math.sin(i * 12.9898 + seed * 78.233) * 43758.5453; a[i] = h - Math.floor(h); } return a; };
+  const sample = (a, n, u, v) => { const x = u * n, y = v * n, i = Math.floor(x), j = Math.floor(y), tx = x - i, ty = y - j, sx = tx * tx * (3 - 2 * tx), sy = ty * ty * (3 - 2 * ty);
+    const at = (p, q) => a[((q % n + n) % n) * n + ((p % n + n) % n)];
+    return (at(i, j) * (1 - sx) + at(i + 1, j) * sx) * (1 - sy) + (at(i, j + 1) * (1 - sx) + at(i + 1, j + 1) * sx) * sy; };
+  const oct = [[8, 1, 0.45], [16, 2, 0.28], [32, 3, 0.17], [128, 4, 0.10]].map(([n, sd, w]) => [lat(n, sd), n, w]);
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    let v = 0; for (const [a, n, w] of oct) v += (sample(a, n, x / N, y / N) - 0.5) * w;
+    const k = Math.round(255 * (0.93 + v * 0.16)), i = (y * N + x) * 4;
+    img.data[i] = img.data[i + 1] = img.data[i + 2] = Math.max(0, Math.min(255, k)); img.data[i + 3] = 255;
+  }
+  g.putImageData(img, 0, 0);
+  groundTex = new THREE.CanvasTexture(c);
+  groundTex.wrapS = groundTex.wrapT = THREE.RepeatWrapping; groundTex.anisotropy = 2;
+  return groundTex;
+}
 function hash2(x, z) { const h = Math.sin(x * 127.1 + z * 311.7) * 43758.5453; return h - Math.floor(h); }
 
 export class WorldBuilder {
@@ -75,20 +100,30 @@ export class WorldBuilder {
     const cGrass = new THREE.Color(0x4e7a3f), cDark = new THREE.Color(0x35592c), cRock = new THREE.Color(0x8a7a66), cSnow = new THREE.Color(0xe8e6e0);
     const cSand = new THREE.Color(0xd9c78f), cRed = new THREE.Color(0xb5613f), cFloor = new THREE.Color(0x9a7a5a), cCity = new THREE.Color(0x6c6f74);
     const tmp = new THREE.Color();
+    const cLush = new THREE.Color(0x3f7a3a), cDirt = new THREE.Color(0x7a6244), cGrey = new THREE.Color(0x7d7468);
+    // paint wins; otherwise the land colours itself: grass with a slow drift between
+    // types, dirt on the slopes, rock where it's steep, red rock where it's been dug
+    // deep, snow up high, sand at the water
     this.terrainColor = (x, z, y, out = tmp) => {
-      const n = vnoise(x * 0.03, z * 0.03);
-      let c = out.copy(cGrass).lerp(cDark, n * 0.6);
-      const carve = T.canyonCarve(x, z);
-      if (carve < -1) c = out.copy(carve < -T.constructor.depth ? cFloor : cRed).lerp(cFloor, sm((-carve - 40) / 45)).lerp(cRed, n * 0.3);
-      if (y > 240) c.lerp(cRock, sm((y - 240) / 120));
-      if (y > 400) c.lerp(cSnow, sm((y - 400) / 60));
-      const d = T.districtAt(x, z);
-      if (d && d.fill === 'beach') c = out.copy(cSand).lerp(cGrass, sm((z - d.z0 - 200) / 120));
-      else if (d && (d.fill === 'towers' || d.fill === 'harbor' || d.fill === 'docks')) c = out.copy(cCity).lerp(cGrass, 0.35);
-      else if (d && d.fill === 'houses') c = out.copy(cGrass).lerp(cSand, 0.15);
+      const n = vnoise(x * 0.03, z * 0.03), n2 = vnoise(x * 0.006 + 3.1, z * 0.006 + 1.7);
       const pt = T.paintAt(x, z);
-      if (pt && PAINT[pt]) c = out.copy(PAINT[pt]).lerp(cDark, n * 0.25);
-      if (y < 1.5 && !pt) c = out.copy(cSand);
+      if (pt && PAINT[pt]) return out.copy(PAINT[pt]).lerp(cDark, n * 0.22);
+      let c = out.copy(cGrass).lerp(cLush, n2).lerp(cDark, n * 0.35);
+      if (!T.flat) {
+        const carve = T.canyonCarve(x, z);
+        if (carve < -1) c = out.copy(carve < -T.constructor.depth ? cFloor : cRed).lerp(cFloor, sm((-carve - 40) / 45)).lerp(cRed, n * 0.3);
+        const d = T.districtAt(x, z);
+        if (d && d.fill === 'beach') c = out.copy(cSand).lerp(cGrass, sm((z - d.z0 - 200) / 120));
+        else if (d && (d.fill === 'towers' || d.fill === 'harbor' || d.fill === 'docks')) c = out.copy(cCity).lerp(cGrass, 0.35);
+        else if (d && d.fill === 'houses') c = out.copy(cGrass).lerp(cSand, 0.15);
+      }
+      const s = T.slopeAt(x, z), dug = T.dhEmpty ? 0 : T.dhAt(x, z);
+      if (s > 0.22) c.lerp(cDirt, sm((s - 0.22) / 0.2));
+      if (s > 0.42) c.lerp(cGrey, sm((s - 0.42) / 0.22));
+      if (dug < -3) c.lerp(dug < -25 ? cRed : cRock, sm((-dug - 3) / 14) * (0.5 + 0.5 * s));
+      const snowLine = 210 + n2 * 70;
+      if (y > snowLine) c.lerp(cSnow, sm((y - snowLine) / 45) * (1 - s * 0.7));
+      if (y < 1.5) c.copy(cSand); else if (y < 4.5) c.lerp(cSand, 1 - (y - 1.5) / 3);
       return c;
     };
     let i = 0;
@@ -114,14 +149,15 @@ export class WorldBuilder {
     const nrm = full.attributes.normal.array;
     full.dispose();
     // tiles of TILE×TILE cells (≈1 km): ~30 draw calls at most, half of them culled
-    const TILE = 72, mat = new THREE.MeshLambertMaterial({ vertexColors: true });
+    const TILE = 72, mat = new THREE.MeshLambertMaterial({ vertexColors: true, map: groundTexture() });
     this.terrainTiles = [];
     for (let tj = 0; tj < h; tj += TILE) for (let tk = 0; tk < w; tk += TILE) {
       const cw = Math.min(TILE, w - tk), chh = Math.min(TILE, h - tj);
-      const tp = new Float32Array((cw + 1) * (chh + 1) * 3), tc = new Float32Array((cw + 1) * (chh + 1) * 3), tn = new Float32Array((cw + 1) * (chh + 1) * 3);
+      const tp = new Float32Array((cw + 1) * (chh + 1) * 3), tc = new Float32Array((cw + 1) * (chh + 1) * 3), tn = new Float32Array((cw + 1) * (chh + 1) * 3), tuv = new Float32Array((cw + 1) * (chh + 1) * 2);
       let m = 0;
       for (let j = 0; j <= chh; j++) for (let k = 0; k <= cw; k++) {
         const src = ((tj + j) * (w + 1) + (tk + k)) * 3;
+        tuv[(m / 3) * 2] = pos[src] / 16; tuv[(m / 3) * 2 + 1] = pos[src + 2] / 16;
         tp[m] = pos[src]; tp[m + 1] = pos[src + 1]; tp[m + 2] = pos[src + 2];
         tc[m] = col[src]; tc[m + 1] = col[src + 1]; tc[m + 2] = col[src + 2];
         tn[m] = nrm[src]; tn[m + 1] = nrm[src + 1]; tn[m + 2] = nrm[src + 2];
@@ -137,6 +173,7 @@ export class WorldBuilder {
       g.setAttribute('position', new THREE.BufferAttribute(tp, 3));
       g.setAttribute('color', new THREE.BufferAttribute(tc, 3));
       g.setAttribute('normal', new THREE.BufferAttribute(tn, 3));
+      g.setAttribute('uv', new THREE.BufferAttribute(tuv, 2));
       g.setIndex(new THREE.BufferAttribute(ti, 1));
       const mesh = new THREE.Mesh(g, mat);
       mesh.receiveShadow = true;

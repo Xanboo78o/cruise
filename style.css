@@ -311,3 +311,9 @@ body.editing #stats { left: 308px; }
 
 body.maker .panel.tl, body.maker #racePanel, body.maker #itemSlot { display: none; }
 body.maker #screens { display: none; }
+
+.ctSliders { display: none; flex-direction: column; gap: 4px; padding: 6px 12px; border-top: 1px solid rgba(255,255,255,.08); }
+.ctSliders.on { display: flex; }
+.ctSliders label { display: flex; align-items: center; gap: 8px; font-size: 10.5px; letter-spacing: 1px; color: #9aa0aa; }
+.ctSliders label b { color: #ffd98a; min-width: 52px; font-weight: 400; }
+.ctSliders input[type=range] { flex: 1; accent-color: #ffd98a; height: 14px; }

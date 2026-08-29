@@ -28,6 +28,13 @@ export class EditLayer {
   }
   add(o) { this.objects.push(o); const k = this.key(o); this.cell(k).objs.add(o); o._cell = k; this.dirty.add(k); }
   remove(o) { const i = this.objects.indexOf(o); if (i >= 0) this.objects.splice(i, 1); const c = this.cells.get(o._cell); if (c) { c.objs.delete(o); this.dirty.add(o._cell); } }
+  // objects within r of (x, z), from this cell and its neighbours
+  near(x, z, r) {
+    const out = [], ci = Math.floor((x - WORLD.minX) / CH), cj = Math.floor((z - WORLD.minZ) / CH), n = Math.ceil(r / CH);
+    for (let j = cj - n; j <= cj + n; j++) for (let i = ci - n; i <= ci + n; i++) { const c = this.cells.get(i * 1000 + j); if (!c) continue; for (const o of c.objs) if (Math.hypot(o.x - x, o.z - z) <= r) out.push(o); }
+    return out;
+  }
+  removeWhere(list, pred) { const gone = []; for (const o of list) if (pred(o)) { this.remove(o); gone.push(o); } return gone; }
   touch(o) { const k = this.key(o); if (k !== o._cell) { const c = this.cells.get(o._cell); if (c) { c.objs.delete(o); this.dirty.add(o._cell); } this.cell(k).objs.add(o); o._cell = k; } this.dirty.add(k); }
 
   disposeCell(c) {

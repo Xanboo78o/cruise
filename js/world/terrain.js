@@ -91,6 +91,12 @@ export class WorldTerrain {
     const d = this.dh, W = this.EW, a = d[j * W + i], b = d[j * W + i + 1], c = d[(j + 1) * W + i], e = d[(j + 1) * W + i + 1];
     return (a * (1 - tx) + b * tx) * (1 - tz) + (c * (1 - tx) + e * tx) * tz;
   }
+  // how steep the land is here: 0 flat → 1 vertical (from the land, roads aside)
+  slopeAt(x, z) {
+    const e = 5, hL = this.land(x - e, z), hR = this.land(x + e, z), hD = this.land(x, z - e), hU = this.land(x, z + e);
+    const nx = (hL - hR) / (2 * e), nz = (hD - hU) / (2 * e);
+    return 1 - 1 / Math.hypot(nx, 1, nz);
+  }
   paintAt(x, z) {
     const i = Math.round((x - WORLD.minX) / this.ER), j = Math.round((z - WORLD.minZ) / this.ER);
     if (i < 0 || j < 0 || i >= this.EW || j >= this.EH) return 0;
