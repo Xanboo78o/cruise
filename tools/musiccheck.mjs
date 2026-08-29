@@ -28,7 +28,7 @@ async function run(id) {
   await send('Page.enable'); await send('Runtime.enable');
   await send('Page.navigate', { url: `${base}/radio.html?check=${id}${wantWav ? '&wav=1' : ''}` });
   let rep = null;
-  for (let i = 0; i < 400; i++) { await sleep(500); const r = await send('Runtime.evaluate', { expression: 'JSON.stringify(window.__CHECK || null)', returnByValue: true }); const v = r.result?.result?.value; if (v && v !== 'null') { rep = JSON.parse(v); break; } }
+  for (let i = 0; i < 1100; i++) { await sleep(500); const r = await send('Runtime.evaluate', { expression: 'JSON.stringify(window.__CHECK || null)', returnByValue: true }); const v = r.result?.result?.value; if (v && v !== 'null') { rep = JSON.parse(v); break; } }
   ch.kill('SIGKILL'); await sleep(200); try { execSync('rm -rf /tmp/claude-1000/mcheck-' + stamp); } catch {}
   for (const l of logs.slice(0, 5)) console.log('  ', l);
   return rep;
