@@ -23,6 +23,8 @@ export class CameraRig {
   }
 
   setTrackCams(model) {
+    // the ground under the camera: no camera ever goes into a hillside or a cut wall
+    this.ground = model && typeof model.heightAt === 'function' ? (x, z) => model.heightAt(x, z) : null;
     // trackside cameras: one every ~120 m, set back from the outside of the road
     this.tvCams = [];
     if (!model || !model.samples) return;
@@ -111,6 +113,8 @@ export class CameraRig {
       }
     }
 
+    // stay out of the ground: a chase cam behind a car in a cutting rides up the wall, it doesn't go through it
+    if (this.ground && this.mode !== 'hood') { const floor = this.ground(this.pos.x, this.pos.z) + 1.1; if (this.pos.y < floor) this.pos.y = floor; }
     this.cam.position.copy(this.pos);
     if (this.shake > 0.001) {
       const s = this.shake * 0.28;

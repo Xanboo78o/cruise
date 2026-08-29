@@ -25,6 +25,8 @@ function nearestOnPolyline(pts, x, z) {
 }
 
 export class WorldTerrain {
+  static SH = 16;     // the shoulder: how far beside a deck the road owns the ground (the terrain mesh is cut away within it)
+  static CELL = 14;   // the terrain mesh grid, metres
   // roads: the road list; doc: the city document (base: 'flat' | 'sanoozi', terrainData: { dh, paint })
   constructor(roads = ROADS, doc = null) {
     this.doc = doc; this.flat = !!(doc && doc.base === 'flat');
@@ -185,10 +187,11 @@ export class WorldTerrain {
       // a rise before it resorts to a bridge: first the highest grade-limited line
       // under the land (cuts), floored at land − cutMax, then the lowest
       // grade-limited line above that (ramps and bridges)
-      const gMax = (r.type === 'canyon' || r.type === 'gravel') ? 0.16 : r.type === 'highway' ? 0.09 : 0.14;
+      const gMax = this.gMax(r);
       const cutMax = r.type === 'highway' ? 16 : r.type === 'street' || r.type === 'blvd' ? 20 : 12;   // city streets on a hillside cut deeper before they bridge
       const landYs = ys.slice();
       if (typeof r.y !== 'number' && r.y !== 'trench') {
+        for (let i = 0; i < n; i++) ys[i] = Math.max(ys[i], 1.5);          // never under the water: a road across a lake or the sea is a causeway
         for (let i = 1; i < n; i++) ys[i] = Math.min(ys[i], ys[i - 1] + gMax * step);
         for (let i = n - 2; i >= 0; i--) ys[i] = Math.min(ys[i], ys[i + 1] + gMax * step);
         for (let i = 0; i < n; i++) ys[i] = Math.max(ys[i], landYs[i] - cutMax);
@@ -205,7 +208,92 @@ export class WorldTerrain {
       if (typeof r.y !== 'number' && r.y !== 'trench') for (let i = 0; i < n; i++) ys[i] = Math.max(ys[i], landYs[i] - cutMax);   // the blur never digs past the cut
       r.ys = ys; r.L = L; r.step = L / (n - 1); r.landYs = landYs;
     }
+    this.meetAtJunctions();
+    for (const r of this.roads) { const n = r.ys.length; r.br = new Uint8Array(n); for (let i = 0; i < n; i++) r.br[i] = r.ys[i] - r.landYs[i] > 8 ? 1 : 0; }   // where it's a bridge (deck well above the land)
   }
+
+  gMax(r) { return (r.type === 'canyon') ? 0.24 : r.type === 'gravel' ? 0.16 : r.type === 'highway' ? 0.09 : 0.14; }   // a canyon road is short and steep: it climbs out of its mouth
+
+  // two decks that meet must meet at ONE height: every open road end that sits on
+  // another road takes that road's deck there (an end on an end: they meet in the
+  // middle), and its own profile is pulled back into its grade cone from that
+  // point — a few rounds and every junction is flush, with no steps for a wheel
+  // to hit and no slab stabbing through another
+  meetAtJunctions() {
+    const fixed = r => typeof r.y === 'number' || r.y === 'trench' || r.type === 'sand' || r.type === 'pier';
+    const near = (o, x, z) => {                                 // nearest point on road o's centreline
+      if (x < o.bb[0] - 30 || x > o.bb[2] + 30 || z < o.bb[1] - 30 || z > o.bb[3] + 30) return null;
+      let best = null;
+      for (const g of o.seg) { const dx = g.x2 - g.x1, dz = g.z2 - g.z1, l2 = g.l * g.l || 1; let t = ((x - g.x1) * dx + (z - g.z1) * dz) / l2; t = Math.max(0, Math.min(1, t)); const d = Math.hypot(x - (g.x1 + dx * t), z - (g.z1 + dz * t)); if (!best || d < best.d) best = { d, s: g.s0 + t * g.l }; }
+      return best;
+    };
+    for (const r of this.roads) { let x0 = 1e9, z0 = 1e9, x1 = -1e9, z1 = -1e9; for (const g of r.seg) { x0 = Math.min(x0, g.x1, g.x2); x1 = Math.max(x1, g.x1, g.x2); z0 = Math.min(z0, g.z1, g.z2); z1 = Math.max(z1, g.z1, g.z2); } r.bb = [x0, z0, x1, z1]; }
+    const J = [];
+    for (const r of this.roads) {
+      if (fixed(r) || r.ys.length < 2) continue;
+      const closed = Math.hypot(r.pts[0][0] - r.pts[r.pts.length - 1][0], r.pts[0][1] - r.pts[r.pts.length - 1][1]) < 3;
+      if (closed) { J.push({ r, i: 0, o: r, s: r.L, oi: r.ys.length - 1 }); continue; }   // a ring road meets itself: no step at the seam
+      for (const end of [0, 1]) {
+        const p = this.pointAt(r, end ? r.L : 0); let best = null;
+        for (const o of this.roads) { if (o === r || fixed(o)) continue; const n = near(o, p.x, p.z); if (n && n.d <= o.T.w / 2 + 1.5 && (!best || n.d < best.d)) best = { ...n, o }; }
+        if (best) J.push({ r, i: end ? r.ys.length - 1 : 0, o: best.o, s: best.s, oi: best.s < 6 ? 0 : best.s > best.o.L - 6 ? best.o.ys.length - 1 : -1 });
+      }
+    }
+    const cone = (r, i, y) => {                                   // set one sample, keep the rest within grade of it
+      const ys = r.ys, g = this.gMax(r) * r.step; ys[i] = y;
+      for (let k = i + 1; k < ys.length; k++) { const lo = ys[k - 1] - g, hi = ys[k - 1] + g; if (ys[k] < lo) ys[k] = lo; else if (ys[k] > hi) ys[k] = hi; else break; }
+      for (let k = i - 1; k >= 0; k--) { const lo = ys[k + 1] - g, hi = ys[k + 1] + g; if (ys[k] < lo) ys[k] = lo; else if (ys[k] > hi) ys[k] = hi; else break; }
+    };
+    for (let pass = 0; pass < 6; pass++) for (const j of J) {
+      const mine = j.r.ys[j.i], theirs = this.roadY(j.o, j.s);
+      if (Math.abs(mine - theirs) < 0.02) continue;
+      if (j.oi >= 0) { const mid = (mine + theirs) / 2; cone(j.r, j.i, mid); cone(j.o, j.oi, mid); }   // end meets end: halfway
+      else cone(j.r, j.i, theirs);                                                                     // end meets a through road: the through road wins
+    }
+    this.junctions = J;
+  }
+
+  isBridge(r, s) { return r.br ? r.br[Math.max(0, Math.min(r.br.length - 1, Math.round(s / r.step)))] === 1 : false; }
+
+  // is (x, z) within a road's at-grade corridor (deck + shoulder), any road?
+  corridorAt(x, z) {
+    const gx = Math.floor((x - this.g.x0) / this.g.cell), gz = Math.floor((z - this.g.z0) / this.g.cell);
+    if (gx < 0 || gz < 0 || gx >= this.g.w || gz >= this.g.h) return false;
+    for (const [ri, si] of this.g.cells[gz * this.g.w + gx]) {
+      const r = this.roads[ri]; if (r.type === 'sand' || r.type === 'pier') continue;
+      const g = r.seg[si], reach = r.T.w / 2 + WorldTerrain.SH;
+      const dx = g.x2 - g.x1, dz = g.z2 - g.z1, l2 = g.l * g.l || 1;
+      let t = ((x - g.x1) * dx + (z - g.z1) * dz) / l2; t = Math.max(0, Math.min(1, t));
+      const d = Math.hypot(x - (g.x1 + dx * t), z - (g.z1 + dz * t));
+      if (d <= reach && !this.isBridge(r, g.s0 + t * g.l)) return true;
+    }
+    return false;
+  }
+
+  // ------------------------------------------------------------- the drawn ground
+  // the land as the terrain mesh draws it: a 14 m grid of land(), split into
+  // triangles the way build.js does. Off the roads the wheels stand on THIS, so
+  // the car sits on what you see; under and beside a road the mesh is cut away
+  // (mFlag) and the road's own shoulder strip is the ground there.
+  buildMesh() {
+    if (this.my) return;
+    const cell = WorldTerrain.CELL, w = Math.ceil((WORLD.maxX - WORLD.minX) / cell), h = Math.ceil((WORLD.maxZ - WORLD.minZ) / cell);
+    this.mw = w; this.mh = h; this.my = new Float32Array((w + 1) * (h + 1)); this.mFlag = new Uint8Array((w + 1) * (h + 1));
+    for (let j = 0; j <= h; j++) for (let k = 0; k <= w; k++) {
+      const x = WORLD.minX + k * cell, z = WORLD.minZ + j * cell, i = j * (w + 1) + k;
+      this.my[i] = this.land(x, z); this.mFlag[i] = this.corridorAt(x, z) ? 1 : 0;
+    }
+  }
+  meshY(x, z) {
+    if (!this.my) this.buildMesh();
+    const cell = WorldTerrain.CELL, fx = (x - WORLD.minX) / cell, fz = (z - WORLD.minZ) / cell;
+    const k = Math.max(0, Math.min(this.mw - 1, Math.floor(fx))), j = Math.max(0, Math.min(this.mh - 1, Math.floor(fz)));
+    const u = Math.max(0, Math.min(1, fx - k)), v = Math.max(0, Math.min(1, fz - j)), W = this.mw + 1, my = this.my;
+    const y00 = my[j * W + k], y10 = my[j * W + k + 1], y01 = my[(j + 1) * W + k], y11 = my[(j + 1) * W + k + 1];
+    return u + v <= 1 ? y00 + (y10 - y00) * u + (y01 - y00) * v : y11 + (y01 - y11) * (1 - u) + (y10 - y11) * (1 - v);
+  }
+  // the map maker moved the land under a vertex: keep the drawn ground in step
+  meshSet(k, j, y) { if (this.my) this.my[j * (this.mw + 1) + k] = y; }
 
   pointAt(r, s) {
     let seg = r.seg[r.seg.length - 1];
@@ -262,33 +350,38 @@ export class WorldTerrain {
   }
 
   // ----------------------------------------------------------- the answer
+  // on a deck: the deck. Beside an at-grade road (within SH m): the shoulder —
+  // cut, embankment — blending into the drawn ground. Anywhere else: the drawn
+  // ground (the terrain mesh itself), so wheels and trees sit on what you see.
   height(x, z) {
-    const land = this.land(x, z);
     const n = this.nearestRoad(x, z);
-    if (!n) return land;
-    const r = n.road, hw = r.T.w / 2, cut = r.T.cut;
-    if (n.d > hw + cut) return land;
-    const ry = this.roadY(r, n.s);
-    if (n.d <= hw) return ry;
-    return this.ground(x, z);                                 // beside the road: the cut, the embankment, or the land
+    if (n) {
+      const r = n.road, hw = r.T.w / 2;
+      if (n.d <= hw) return this.roadY(r, n.s);
+      if (r.type !== 'pier' && r.type !== 'sand' && n.d <= hw + WorldTerrain.SH && !this.isBridge(r, n.s)) return this.sideY(x, z, n);
+    }
+    return this.meshY(x, z);
   }
 
-  // the ground beside and under a road, the way a road is actually built:
+  // the ground beside a road, the way a road is actually built:
   // CUT where the hill is above the deck (a bench, the wall steps back over 3 m),
-  // FILL where the deck is up to 8 m above the land (an embankment, 1:1 slope),
-  // BRIDGE beyond that (the ground is the ground; skirts and piers do the rest).
-  // Both the terrain mesh and the wheels use this beside the road.
-  ground(x, z) {
+  // FILL where the deck is above the land (an embankment, 1:1 down to the land),
+  // BRIDGE where the deck is more than 8 m up (the ground is the ground; skirts
+  // and piers do the rest). Analytic — the road's shoulder strip draws exactly this.
+  ground(x, z, n = this.nearestRoad(x, z)) {
     const land = this.land(x, z);
-    const n = this.nearestRoad(x, z);
     if (!n) return land;
     const r = n.road, hw = r.T.w / 2;
-    if (r.type === 'pier' || n.d > hw + 12) return land;
+    if (r.type === 'pier' || r.type === 'sand' || n.d > hw + WorldTerrain.SH || this.isBridge(r, n.s)) return land;
     const ry = this.roadY(r, n.s), over = ry - land;         // deck above (+) or below (−) the land
     const out = n.d - hw;                                    // metres past the deck edge
-    if (over < -0.3) return out <= 0 ? ry - 0.05 : out <= 3 ? lerp(ry - 0.05, land, sm(out / 3)) : land;            // cut
-    if (over <= 8) { const bank = ry - 0.05 - Math.max(0, out); return out <= 0 ? ry - 0.05 : Math.max(land, bank); }   // fill: 1:1 down to the land
-    return land;                                                                                                          // bridge
+    if (over < -0.3) { const run = Math.max(3, Math.min(WorldTerrain.SH - 4, -over * 0.6)); return out <= 0 ? ry - 0.05 : out <= run ? lerp(ry - 0.05, land, sm(out / run)) : land; }   // cut: the wall leans back ~60°, deeper cuts run further
+    const bank = ry - 0.05 - Math.max(0, out); return out <= 0 ? ry - 0.05 : Math.max(land, bank);        // fill: 1:1 down to the land
+  }
+  // the shoulder as drawn: ground() near the deck, easing into the terrain mesh over the last 4 m of the corridor
+  sideY(x, z, n) {
+    const g = this.ground(x, z, n), out = n.d - n.road.T.w / 2, k = (out - (WorldTerrain.SH - 4)) / 4;
+    return k <= 0 ? g : lerp(g, this.meshY(x, z), sm(k));
   }
 
   surfaceAt(x, z) {

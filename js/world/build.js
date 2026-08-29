@@ -94,7 +94,7 @@ export class WorldBuilder {
   // one height grid, coloured, split into tiles so the far side of the world
   // is frustum-culled instead of drawn every frame
   buildTerrain() {
-    const T = this.T, cell = 14;
+    const T = this.T, cell = T.constructor.CELL;
     const w = Math.ceil((WORLD.maxX - WORLD.minX) / cell), h = Math.ceil((WORLD.maxZ - WORLD.minZ) / cell);
     const pos = new Float32Array((w + 1) * (h + 1) * 3), col = new Float32Array((w + 1) * (h + 1) * 3);
     const cGrass = new THREE.Color(0x4e7a3f), cDark = new THREE.Color(0x35592c), cRock = new THREE.Color(0x8a7a66), cSnow = new THREE.Color(0xe8e6e0);
@@ -126,10 +126,12 @@ export class WorldBuilder {
       if (y < 1.5) c.copy(cSand); else if (y < 4.5) c.lerp(cSand, 1 - (y - 1.5) / 3);
       return c;
     };
+    T.buildMesh();                                              // the drawn ground: land() on this very grid, road corridors flagged
+    const my = T.my, flag = T.mFlag;
     let i = 0;
     for (let j = 0; j <= h; j++) for (let k = 0; k <= w; k++) {
       const x = WORLD.minX + k * cell, z = WORLD.minZ + j * cell;
-      const y = T.ground(x, z);
+      const y = my[i];
       pos[i * 3] = x; pos[i * 3 + 1] = y; pos[i * 3 + 2] = z;
       const c = this.terrainColor(x, z, y);
       col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
@@ -163,18 +165,22 @@ export class WorldBuilder {
         tn[m] = nrm[src]; tn[m + 1] = nrm[src + 1]; tn[m + 2] = nrm[src + 2];
         m += 3;
       }
+      // no terrain within SH of an at-grade deck: a road draws its own ground there
+      // (its shoulder strip), so the coarse mesh can never poke up through a slab
       const ti = new Uint32Array(cw * chh * 6);
       let qq = 0;
+      const F = (j, k) => flag[(tj + j) * (w + 1) + (tk + k)];
       for (let j = 0; j < chh; j++) for (let k = 0; k < cw; k++) {
-        const a = j * (cw + 1) + k;
-        ti[qq++] = a; ti[qq++] = a + cw + 1; ti[qq++] = a + 1; ti[qq++] = a + 1; ti[qq++] = a + cw + 1; ti[qq++] = a + cw + 2;
+        const a = j * (cw + 1) + k, f00 = F(j, k), f10 = F(j, k + 1), f01 = F(j + 1, k), f11 = F(j + 1, k + 1);
+        if (!(f00 || f01 || f10)) { ti[qq++] = a; ti[qq++] = a + cw + 1; ti[qq++] = a + 1; }
+        if (!(f10 || f01 || f11)) { ti[qq++] = a + 1; ti[qq++] = a + cw + 1; ti[qq++] = a + cw + 2; }
       }
       const g = new THREE.BufferGeometry();
       g.setAttribute('position', new THREE.BufferAttribute(tp, 3));
       g.setAttribute('color', new THREE.BufferAttribute(tc, 3));
       g.setAttribute('normal', new THREE.BufferAttribute(tn, 3));
       g.setAttribute('uv', new THREE.BufferAttribute(tuv, 2));
-      g.setIndex(new THREE.BufferAttribute(ti, 1));
+      g.setIndex(new THREE.BufferAttribute(ti.subarray(0, qq), 1));
       const mesh = new THREE.Mesh(g, mat);
       mesh.receiveShadow = true;
       mesh.userData = { tk, tj, cw, chh, cell };
@@ -197,7 +203,7 @@ export class WorldBuilder {
       for (let j = 0; j <= chh; j++) for (let k = 0; k <= cw; k++) {
         const vx = x0 + k * cell, vz = z0 + j * cell;
         if (Math.abs(vx - x) > r + cell || Math.abs(vz - z) > r + cell) continue;
-        const i = j * (cw + 1) + k, y = T.ground(vx, vz);
+        const i = j * (cw + 1) + k, y = T.land(vx, vz); T.meshSet(tk + k, tj + j, y);
         pos.setY(i, y); const c = this.terrainColor(vx, vz, y); col.setXYZ(i, c.r, c.g, c.b); touched = true;
       }
       if (touched) { pos.needsUpdate = true; col.needsUpdate = true; tile.geometry.computeVertexNormals(); tile.geometry.computeBoundingSphere(); }
@@ -217,65 +223,97 @@ export class WorldBuilder {
   // grade, a 1.6 m edge when it's a bridge), a kerb along paved edges, and
   // pillars wherever the deck is well above the land
   buildRoads() {
-    const T = this.T;
+    const T = this.T, SH = T.constructor.SH;
     const paved = new THREE.Color(0x4a4f58), gravel = new THREE.Color(0x9a8664), sand = new THREE.Color(0xe0cf98), pier = new THREE.Color(0x8a6e4e);
     const concrete = new THREE.Color(0x8d8a82), pillarC = new THREE.Color(0x77746e), kerbC = new THREE.Color(0xb3b0a8);
-    const pos = [], col = [], idx = [];
-    const V = (x, y, z, c) => { pos.push(x, y, z); col.push(c.r, c.g, c.b); return pos.length / 3 - 1; };
+    const pos = [], col = [], uv = [], idx = [];
+    const V = (x, y, z, c) => { pos.push(x, y, z); col.push(c.r, c.g, c.b); uv.push(x / 16, z / 16); return pos.length / 3 - 1; };
     const quad = (a, b, c, d) => idx.push(a, b, c, a, c, d);                 // a,b,c,d counter-clockwise seen from the outside
+    // the shoulder: the road's own ground out to SH m (the cut wall, the embankment —
+    // exactly what the wheels get from T.height), then a cover band to 36 m that lies
+    // just under the terrain mesh. The mesh has no triangles within SH of an at-grade
+    // deck, so this is the only ground there and nothing can poke up through a slab.
+    const OUT = [0, 4, 9, 16, 26, 36];                                        // from the deck edge itself: no slot under an unkerbed edge
+    const gc = new THREE.Color();
     for (const r of T.roads) {
       const hw = r.T.w / 2, step = 6;
       const n = Math.max(2, Math.ceil(r.L / step) + 1);
       const c = r.T.surf === 'gravel' ? gravel : r.T.surf === 'sand' ? sand : r.type === 'pier' ? pier : paved;
-      const kerbed = r.T.surf === 'road' && r.type !== 'pier', skirted = r.type !== 'sand';
+      const kerbed = r.T.surf === 'road' && r.type !== 'pier', skirted = r.type !== 'sand', shouldered = r.type !== 'sand' && r.type !== 'pier';
       let prev = null, sincePillar = 0;
       for (let i = 0; i < n; i++) {
         const s = (i / (n - 1)) * r.L;
-        const p = T.pointAt(r, s), ry = T.roadY(r, s), y = ry + 0.08;
+        const p = T.pointAt(r, s), ry = T.roadY(r, s), y = ry + 0.08, bridge = T.isBridge(r, s);
         const nx = p.tz, nz = -p.tx;
         const shade = 1 - 0.15 * vnoise(p.x * 0.05, p.z * 0.05);
         const cs = c.clone().multiplyScalar(shade);
         const L = [p.x + nx * hw, p.z + nz * hw], R = [p.x - nx * hw, p.z - nz * hw];
-        const landL = T.land(L[0], L[1]), landR = T.land(R[0], R[1]), landC = T.land(p.x, p.z);
+        const skirtY = bridge ? y - 1.6 : y - 1.2;                                                   // a 1.6 m slab edge on a bridge; buried in the shoulder otherwise
         const cur = {
           dl: V(L[0], y, L[1], cs), dr: V(R[0], y, R[1], cs),                                       // deck edges
-          sl: V(L[0], ry - landL > 8 ? y - 1.6 : Math.max(landL - 0.4, y - 0.5), L[1], concrete), sr: V(R[0], ry - landR > 8 ? y - 1.6 : Math.max(landR - 0.4, y - 0.5), R[1], concrete),   // skirt bottoms: a kerb-deep edge on an embankment, a 1.6 m slab on a bridge
+          sl: V(L[0], skirtY, L[1], concrete), sr: V(R[0], skirtY, R[1], concrete),
           kl: kerbed ? [V(L[0], y + 0.3, L[1], kerbC), V(L[0] - nx * 0.55, y + 0.3, L[1] - nz * 0.55, kerbC), V(L[0] - nx * 0.55, y, L[1] - nz * 0.55, kerbC)] : null,
           kr: kerbed ? [V(R[0], y + 0.3, R[1], kerbC), V(R[0] + nx * 0.55, y + 0.3, R[1] + nz * 0.55, kerbC), V(R[0] + nx * 0.55, y, R[1] + nz * 0.55, kerbC)] : null,
+          shl: null, shr: null,
         };
+        if (shouldered) {
+          cur.shl = []; cur.shr = [];
+          for (const o of OUT) {
+            const under = (o > SH || bridge) ? 0.05 : 0;                                            // the cover band (and everything on a bridge) sits just under the mesh
+            const lx = p.x + nx * (hw + o), lz = p.z + nz * (hw + o), rx = p.x - nx * (hw + o), rz = p.z - nz * (hw + o);
+            const ly = T.height(lx, lz) - under, ryy = T.height(rx, rz) - under;
+            cur.shl.push(V(lx, ly, lz, this.terrainColor(lx, lz, ly, gc)));
+            cur.shr.push(V(rx, ryy, rz, this.terrainColor(rx, rz, ryy, gc)));
+          }
+        }
         if (prev) {
           quad(prev.dl, cur.dl, cur.dr, prev.dr);                                                   // deck (faces up)
           if (skirted) { quad(prev.sl, cur.sl, cur.dl, prev.dl); quad(prev.dr, cur.dr, cur.sr, prev.sr); }   // skirts (face out)
           if (kerbed) {
             quad(prev.kl[0], cur.kl[0], cur.kl[1], prev.kl[1]); quad(prev.kl[1], cur.kl[1], cur.kl[2], prev.kl[2]);   // left kerb: top, inner face
             quad(prev.kr[1], cur.kr[1], cur.kr[0], prev.kr[0]); quad(prev.kr[2], cur.kr[2], cur.kr[1], prev.kr[1]);   // right kerb
-            // the kerb's outer face is the skirt's top edge; the skirt starts at deck height so it reads as one slab
+          }
+          if (shouldered) for (let k = 0; k < OUT.length - 1; k++) {                                // shoulders (face up, like the deck)
+            quad(prev.shl[k + 1], cur.shl[k + 1], cur.shl[k], prev.shl[k]);
+            quad(prev.shr[k], cur.shr[k], cur.shr[k + 1], prev.shr[k + 1]);
           }
         }
         // one pier under a bridge every 40 m
         sincePillar += prev ? step : 0;
-        if (ry - landC > 8 && sincePillar >= 40 && r.type !== 'pier') {
+        if (bridge && sincePillar >= 40 && r.type !== 'pier') {
           sincePillar = 0;
-          for (const side of [0]) {
-            const cx = p.x, cz = p.z, hwid = Math.min(3, hw * 0.4), bottom = T.land(cx, cz) - 1.5;
-            const a = [cx + nx * hwid + p.tx * hwid, cz + nz * hwid + p.tz * hwid], b = [cx - nx * hwid + p.tx * hwid, cz - nz * hwid + p.tz * hwid];
-            const d = [cx - nx * hwid - p.tx * hwid, cz - nz * hwid - p.tz * hwid], e = [cx + nx * hwid - p.tx * hwid, cz + nz * hwid - p.tz * hwid];
-            const corners = [a, b, d, e], top = [], bot = [];
-            for (const [qx, qz] of corners) { top.push(V(qx, ry - 0.3, qz, pillarC)); bot.push(V(qx, bottom, qz, pillarC)); }
-            for (let k = 0; k < 4; k++) { const k2 = (k + 1) % 4; quad(bot[k], bot[k2], top[k2], top[k]); quad(top[k], top[k2], bot[k2], bot[k]); }
-          }
+          const cx = p.x, cz = p.z, hwid = Math.min(3, hw * 0.4), bottom = T.meshY(cx, cz) - 1.5;
+          const a = [cx + nx * hwid + p.tx * hwid, cz + nz * hwid + p.tz * hwid], b = [cx - nx * hwid + p.tx * hwid, cz - nz * hwid + p.tz * hwid];
+          const d = [cx - nx * hwid - p.tx * hwid, cz - nz * hwid - p.tz * hwid], e = [cx + nx * hwid - p.tx * hwid, cz + nz * hwid - p.tz * hwid];
+          const corners = [a, b, d, e], top = [], bot = [];
+          for (const [qx, qz] of corners) { top.push(V(qx, ry - 0.3, qz, pillarC)); bot.push(V(qx, bottom, qz, pillarC)); }
+          for (let k = 0; k < 4; k++) { const k2 = (k + 1) % 4; quad(bot[k], bot[k2], top[k2], top[k]); quad(top[k], top[k2], bot[k2], bot[k]); }
         }
         prev = cur;
       }
+      // end caps: the terrain is cut away for hw + SH around a road END too, so a fan of
+      // cover (just under the deck, the shoulder, then the mesh) closes the hole at a dead end
+      if (shouldered) for (const end of [0, 1]) {
+        const p = T.pointAt(r, end ? r.L : 0), cx = p.x, cz = p.z, base2 = pos.length / 3, spokes = 16, rings = [hw, hw + 16, hw + 36];
+        const yc = T.height(cx, cz) - 0.05; pos.push(cx, yc, cz); col.push(gc.r, gc.g, gc.b); uv.push(cx / 16, cz / 16);
+        for (let ri = 0; ri < rings.length; ri++) for (let k = 0; k < spokes; k++) {
+          const a = k / spokes * Math.PI * 2, x = cx + Math.cos(a) * rings[ri], z = cz + Math.sin(a) * rings[ri], y = T.height(x, z) - 0.05;
+          this.terrainColor(x, z, y, gc); pos.push(x, y, z); col.push(gc.r, gc.g, gc.b); uv.push(x / 16, z / 16);
+        }
+        for (let k = 0; k < spokes; k++) { const k2 = (k + 1) % spokes; idx.push(base2, base2 + 1 + k, base2 + 1 + k2); }
+        for (let ri = 0; ri < rings.length - 1; ri++) for (let k = 0; k < spokes; k++) { const k2 = (k + 1) % spokes, i0 = base2 + 1 + ri * spokes, i1 = i0 + spokes; quad(i0 + k, i0 + k2, i1 + k2, i1 + k); }
+      }
       // junction plates: a disc at every polyline vertex so crossings don't show seams
+      const shadeAt = (x, z) => 1 - 0.15 * vnoise(x * 0.05, z * 0.05);                             // the deck's own mottling, so a plate is invisible on it
       for (const [x, z] of r.pts) {
         const y = T.height(x, z) + 0.09;
         const base2 = pos.length / 3, segs = 14;
-        pos.push(x, y, z); col.push(c.r, c.g, c.b);
+        let sh = shadeAt(x, z);
+        pos.push(x, y, z); col.push(c.r * sh, c.g * sh, c.b * sh); uv.push(x / 16, z / 16);
         for (let k = 0; k <= segs; k++) {
-          const a = k / segs * Math.PI * 2;
-          pos.push(x + Math.cos(a) * hw, T.height(x + Math.cos(a) * hw * 0.9, z + Math.sin(a) * hw * 0.9) + 0.09, z + Math.sin(a) * hw);
-          col.push(c.r, c.g, c.b);
+          const a = k / segs * Math.PI * 2, px = x + Math.cos(a) * hw, pz = z + Math.sin(a) * hw;
+          pos.push(px, T.height(x + Math.cos(a) * hw * 0.9, z + Math.sin(a) * hw * 0.9) + 0.09, pz);
+          sh = shadeAt(px, pz); col.push(c.r * sh, c.g * sh, c.b * sh); uv.push(px / 16, pz / 16);
           if (k < segs) idx.push(base2, base2 + 1 + k, base2 + 2 + k);
         }
       }
@@ -283,8 +321,10 @@ export class WorldBuilder {
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
     g.setIndex(idx); g.computeVertexNormals();
-    const mesh = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }));
+    // the same ground grain as the terrain, so a shoulder is indistinguishable from the land it meets
+    const mesh = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide, map: groundTexture() }));
     mesh.receiveShadow = true;
     this.group.add(mesh);
     this.roadMesh = mesh;

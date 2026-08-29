@@ -42,3 +42,17 @@ which writes `assets/city/sanoozi.json` — the terrain from your heights, the
 road from your line (it rides the land and bridges the dips on its own), the
 ground colours — and you drive it. Then you mark what's wrong on the next
 sketch and we go again.
+
+## What the build does on its own
+
+- **Roads connect.** Every loose end in the drawing is joined: snapped onto a
+  road it nearly touches, extended to the road it was heading for, and any
+  cluster left on its own gets a link road. Decks meet flush at every junction.
+  A road never dips under the water (it becomes a causeway).
+- **The canyon.** The orange area is a low mesa; the black lines inside it are
+  the divots — slot trenches two canyon roads wide with a gravel road on the
+  floor, open at the end nearest the streets (a long one is open at both).
+- **No terrain clipping.** Roads own the ground beside them (cut walls,
+  embankments, bridges); the land is drawn exactly where the wheels stand.
+- Check any build with `node tools/worldcheck.mjs assets/city/sanoozi.json map.png`
+  — every count except the divots' dead ends should be 0.
