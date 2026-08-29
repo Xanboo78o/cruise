@@ -30,7 +30,7 @@ if (C.px) {
   const cvPts = pts => pts.map(([x, z]) => cv(x, z));
   const cvR = r => Math.round(r * S);
   for (const k of ['peaks', 'plateaus', 'bowls', 'objects']) for (const o of C[k] || []) { [o.x, o.z] = cv(o.x, o.z); if (o.r != null && k !== 'objects') o.r = cvR(o.r); if (o.edge) o.edge = cvR(o.edge); }
-  for (const k of ['ridges', 'valleys', 'paint', 'roads', 'forests', 'zones']) for (const o of C[k] || []) { o.pts = cvPts(o.pts); if (o.r != null) o.r = cvR(o.r); }
+  for (const k of ['ridges', 'valleys', 'paint', 'roads', 'forests', 'zones', 'regions', 'paintPolys']) for (const o of C[k] || []) { o.pts = cvPts(o.pts); if (o.r != null) o.r = cvR(o.r); if (o.edge != null) o.edge = cvR(o.edge); }
   console.log(`sketch ${C.px.w}×${C.px.h} px → ${S.toFixed(2)} m/px`);
 }
 const ER = 8, EW = Math.ceil((WORLD.maxX - WORLD.minX) / ER) + 1, EH = Math.ceil((WORLD.maxZ - WORLD.minZ) / ER) + 1;
@@ -39,24 +39,58 @@ const dh = new Float32Array(EW * EH), paint = new Uint8Array(EW * EH);
 const sm = t => { t = Math.max(0, Math.min(1, t)); return t * t * (3 - 2 * t); };
 const gauss = (d, r) => Math.exp(-0.6931 * (d / r) * (d / r));    // 1 at the centre, 0.5 at r
 const cellX = i => WORLD.minX + i * ER, cellZ = j => WORLD.minZ + j * ER;
-function distToLine(pts, x, z) {
-  let best = 1e9;
+function distToLine(pts, x, z, out = null) {
+  let best = 1e9, bi = 0, bt = 0;
   for (let i = 0; i < pts.length - 1; i++) {
     const [x1, z1] = pts[i], [x2, z2] = pts[i + 1], dx = x2 - x1, dz = z2 - z1, l2 = dx * dx + dz * dz || 1;
     let t = ((x - x1) * dx + (z - z1) * dz) / l2; t = Math.max(0, Math.min(1, t));
-    best = Math.min(best, Math.hypot(x - (x1 + dx * t), z - (z1 + dz * t)));
+    const d = Math.hypot(x - (x1 + dx * t), z - (z1 + dz * t));
+    if (d < best) { best = d; bi = i; bt = t; }
   }
+  if (out) { out.i = bi; out.t = bt; }
   return pts.length === 1 ? Math.hypot(x - pts[0][0], z - pts[0][1]) : best;
 }
+// a ridge may carry a height per point ("hs": [...]) — it tapers along its length
+const ridgeH = (r, at) => r.hs ? r.hs[at.i] + (r.hs[Math.min(r.hs.length - 1, at.i + 1)] - r.hs[at.i]) * at.t : r.h;
 // every feature is applied as "raise the land toward a target": max() for hills so
 // overlapping peaks merge into a range, min() for cuts
 const each = fn => { for (let j = 0; j < EH; j++) for (let i = 0; i < EW; i++) fn(i, j, cellX(i), cellZ(j)); };
 for (const p of C.peaks || []) each((i, j, x, z) => { const k = j * EW + i, want = (p.h - BASE) * gauss(Math.hypot(x - p.x, z - p.z), p.r); if (want > dh[k]) dh[k] = want; });
-for (const r of C.ridges || []) each((i, j, x, z) => { const k = j * EW + i, want = (r.h - BASE) * gauss(distToLine(r.pts, x, z), r.r); if (want > dh[k]) dh[k] = want; });
+const _at = {};
+for (const r of C.ridges || []) each((i, j, x, z) => { const k = j * EW + i, d = distToLine(r.pts, x, z, _at), want = (ridgeH(r, _at) - BASE) * gauss(d, r.r); if (want > dh[k]) dh[k] = want; });
 for (const p of C.plateaus || []) each((i, j, x, z) => { const k = j * EW + i, d = Math.hypot(x - p.x, z - p.z), want = (p.h - BASE) * (1 - sm((d - p.r) / (p.edge || 80))); if (want > dh[k]) dh[k] = want; });
 for (const v of C.valleys || []) each((i, j, x, z) => { const k = j * EW + i, f = gauss(distToLine(v.pts, x, z), v.r); dh[k] += v.d * f; });
 for (const b of C.bowls || []) each((i, j, x, z) => { const k = j * EW + i, f = gauss(Math.hypot(x - b.x, z - b.z), b.r); dh[k] += b.d * f; });
 for (const p of C.paint || []) each((i, j, x, z) => { if (distToLine(p.pts, x, z) <= p.r) paint[j * EW + i] = p.color | 0; });
+
+// polygons: "regions": [{ "pts": [[x,z],...], "h": 130, "edge": 80 }] raises the inside to h with a soft edge (max);
+// { "pts", "d": -30, "edge": 60 } lowers it by d (additive); "paintPolys": [{ "pts", "color" }]
+function rasterPoly(pts) {
+  const m = new Uint8Array(EW * EH), n = pts.length;
+  for (let j = 0; j < EH; j++) {
+    const z = cellZ(j), xs = [];
+    for (let a = 0, b = n - 1; a < n; b = a++) { const [xa, za] = pts[a], [xb, zb] = pts[b]; if ((za > z) !== (zb > z)) xs.push(xa + (z - za) / (zb - za) * (xb - xa)); }
+    xs.sort((p, q) => p - q);
+    for (let k = 0; k + 1 < xs.length; k += 2) { const i0 = Math.max(0, Math.ceil((xs[k] - WORLD.minX) / ER)), i1 = Math.min(EW - 1, Math.floor((xs[k + 1] - WORLD.minX) / ER)); for (let i = i0; i <= i1; i++) m[j * EW + i] = 1; }
+  }
+  return m;
+}
+// distance (in metres) from each inside cell to the nearest outside cell — two-pass chamfer
+function insideDist(m) {
+  const D = new Float32Array(EW * EH), BIG = 1e6;
+  for (let k = 0; k < D.length; k++) D[k] = m[k] ? BIG : 0;
+  for (let j = 0; j < EH; j++) for (let i = 0; i < EW; i++) { const k = j * EW + i; if (!D[k]) continue; let v = D[k]; if (i) v = Math.min(v, D[k - 1] + 1); if (j) v = Math.min(v, D[k - EW] + 1); if (i && j) v = Math.min(v, D[k - EW - 1] + 1.414); if (i < EW - 1 && j) v = Math.min(v, D[k - EW + 1] + 1.414); D[k] = v; }
+  for (let j = EH - 1; j >= 0; j--) for (let i = EW - 1; i >= 0; i--) { const k = j * EW + i; if (!D[k]) continue; let v = D[k]; if (i < EW - 1) v = Math.min(v, D[k + 1] + 1); if (j < EH - 1) v = Math.min(v, D[k + EW] + 1); if (i < EW - 1 && j < EH - 1) v = Math.min(v, D[k + EW + 1] + 1.414); if (i && j < EH - 1) v = Math.min(v, D[k + EW - 1] + 1.414); D[k] = v; }
+  for (let k = 0; k < D.length; k++) D[k] *= ER;
+  return D;
+}
+// flat regions first (the mountains stay out of the city and the lowland), then raises, then cuts
+const regionsSorted = (C.regions || []).slice().sort((a, b) => (a.flat ? 0 : a.h != null ? 1 : 2) - (b.flat ? 0 : b.h != null ? 1 : 2));
+for (const rg of regionsSorted) {
+  const m = rasterPoly(rg.pts), D = insideDist(m), edge = rg.edge || 60;
+  for (let k = 0; k < m.length; k++) { if (!m[k]) continue; const f = sm(D[k] / edge); if (rg.flat) dh[k] *= 1 - f; if (rg.h != null) { const want = (rg.h - BASE) * f; if (want > dh[k]) dh[k] = want; } if (rg.d != null) dh[k] += rg.d * f; }
+}
+for (const p of C.paintPolys || []) { const m = rasterPoly(p.pts); for (let k = 0; k < m.length; k++) if (m[k]) paint[k] = p.color | 0; }
 
 // forests: scatter tree pieces within r of a line — "forests": [{ "pts", "r", "kinds": ["pine"], "spacing": 12 }]
 // (dressing, not layout: the line is hand-drawn, the trees just fill it; ERASE FOLIAGE removes them)

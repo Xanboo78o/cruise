@@ -186,7 +186,7 @@ export class WorldTerrain {
       // under the land (cuts), floored at land − cutMax, then the lowest
       // grade-limited line above that (ramps and bridges)
       const gMax = (r.type === 'canyon' || r.type === 'gravel') ? 0.16 : r.type === 'highway' ? 0.09 : 0.14;
-      const cutMax = r.type === 'highway' ? 16 : 12;
+      const cutMax = r.type === 'highway' ? 16 : r.type === 'street' || r.type === 'blvd' ? 20 : 12;   // city streets on a hillside cut deeper before they bridge
       const landYs = ys.slice();
       if (typeof r.y !== 'number' && r.y !== 'trench') {
         for (let i = 1; i < n; i++) ys[i] = Math.min(ys[i], ys[i - 1] + gMax * step);

@@ -1,0 +1,167 @@
+<!doctype html><meta charset="utf-8"><title>trace a sketch</title>
+<canvas id="c"></canvas>
+<script>
+// traceMap(url): read Adam's marker drawing and hand back what he drew, 1:1 —
+// every line as a polyline of its own centreline pixels, every blob as a
+// polygon. Colours: BLUE lines = roads, GREEN band = the Crest, BLACK lines in
+// the ORANGE = canyon roads, BLACK hatching = lakes, BLACK stripes = sea,
+// RED / YELLOW / ORANGE blobs = zones. Grid and smudges are ignored.
+window.traceMap = async function (url, opts = {}) {
+  const img = new Image(); img.src = url; await img.decode();
+  const W = img.naturalWidth, H = img.naturalHeight, c = document.getElementById('c'); c.width = W; c.height = H;
+  const g = c.getContext('2d'); g.drawImage(img, 0, 0);
+  const d = g.getImageData(0, 0, W, H).data, N = W * H;
+  // ---------------------------------------------------------------- classify
+  const M = { blue: new Uint8Array(N), green: new Uint8Array(N), black: new Uint8Array(N), dark: new Uint8Array(N), darkRed: new Uint8Array(N), red: new Uint8Array(N), yellow: new Uint8Array(N), orange: new Uint8Array(N) };
+  for (let i = 0; i < N; i++) {
+    const r = d[i * 4] / 255, gg = d[i * 4 + 1] / 255, b = d[i * 4 + 2] / 255;
+    const mx = Math.max(r, gg, b), mn = Math.min(r, gg, b), v = mx, s = mx ? (mx - mn) / mx : 0;
+    let h = 0; if (mx !== mn) { if (mx === r) h = ((gg - b) / (mx - mn)) % 6; else if (mx === gg) h = (b - r) / (mx - mn) + 2; else h = (r - gg) / (mx - mn) + 4; h *= 60; if (h < 0) h += 360; }
+    // order matters: a blue line under red highlighter is dark purple, the green
+    // band over its black centre line is dark green — hue first, darkness last
+    if (h >= 190 && h <= 330 && s > 0.28 && v > 0.16) { M.blue[i] = 1; continue; }
+    if (h >= 62 && h < 178 && s > 0.2 && v > 0.1 && v < 0.85) { M.green[i] = 1; continue; }
+    if (v < 0.42 && s < 0.5) { M.black[i] = 1; continue; }
+    if (v < 0.4 && (h < 45 || h > 300) && s >= 0.35) { M.darkRed[i] = 1; continue; }   // marker under RED highlighter
+    if (v < 0.38) { M.dark[i] = 1; continue; }                // a marker line under yellow/orange
+    if (s < 0.25) continue;
+    else if ((h < 14 || h >= 330) && s > 0.4 && v > 0.3) M.red[i] = 1;
+    else if (h >= 14 && h < 42 && s > 0.4 && v > 0.45) M.orange[i] = 1;
+    else if (h >= 42 && h < 68 && s > 0.3 && v > 0.55) M.yellow[i] = 1;
+  }
+  // ---------------------------------------------------------------- morphology
+  const dilate = (m, r) => { const o = new Uint8Array(N); for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { if (!m[y * W + x]) continue; for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) { const yy = y + dy, xx = x + dx; if (yy >= 0 && yy < H && xx >= 0 && xx < W) o[yy * W + xx] = 1; } } return o; };
+  const erode = (m, r) => { const o = new Uint8Array(N); for (let y = r; y < H - r; y++) for (let x = r; x < W - r; x++) { let ok = 1; for (let dy = -r; dy <= r && ok; dy++) for (let dx = -r; dx <= r; dx++) if (!m[(y + dy) * W + x + dx]) { ok = 0; break; } o[y * W + x] = ok; } return o; };
+  const close = (m, r) => erode(dilate(m, r), r);
+  const and = (a, b) => { const o = new Uint8Array(N); for (let i = 0; i < N; i++) o[i] = a[i] & b[i]; return o; };
+  const or = (a, b) => { const o = new Uint8Array(N); for (let i = 0; i < N; i++) o[i] = a[i] | b[i]; return o; };
+  const not = a => { const o = new Uint8Array(N); for (let i = 0; i < N; i++) o[i] = a[i] ^ 1; return o; };
+  const count = m => { let n = 0; for (let i = 0; i < N; i++) n += m[i]; return n; };
+  // the box blur density of a mask, window 2r+1 (for hatching → regions)
+  const density = (m, r) => { const s = new Float32Array((W + 1) * (H + 1)); for (let y = 1; y <= H; y++) for (let x = 1; x <= W; x++) s[y * (W + 1) + x] = m[(y - 1) * W + x - 1] + s[(y - 1) * (W + 1) + x] + s[y * (W + 1) + x - 1] - s[(y - 1) * (W + 1) + x - 1];
+    const o = new Float32Array(N); const a = (2 * r + 1) ** 2;
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const x0 = Math.max(0, x - r), y0 = Math.max(0, y - r), x1 = Math.min(W, x + r + 1), y1 = Math.min(H, y + r + 1); o[y * W + x] = (s[y1 * (W + 1) + x1] - s[y0 * (W + 1) + x1] - s[y1 * (W + 1) + x0] + s[y0 * (W + 1) + x0]) / a; } return o; };
+  const thresh = (f, t) => { const o = new Uint8Array(N); for (let i = 0; i < N; i++) o[i] = f[i] >= t ? 1 : 0; return o; };
+  // connected components: label, sizes, bbox, touchesEdge
+  const components = m => { const lab = new Int32Array(N); const comps = []; const st = new Int32Array(N); for (let i = 0; i < N; i++) { if (!m[i] || lab[i]) continue; const id = comps.length + 1; let sp = 0, n = 0, minx = W, maxx = 0, miny = H, maxy = 0; st[sp++] = i; lab[i] = id;
+      while (sp) { const p = st[--sp]; n++; const x = p % W, y = (p / W) | 0; if (x < minx) minx = x; if (x > maxx) maxx = x; if (y < miny) miny = y; if (y > maxy) maxy = y;
+        for (const q of [p - 1, p + 1, p - W, p + W]) { if (q < 0 || q >= N) continue; if (Math.abs((q % W) - x) > 1) continue; if (m[q] && !lab[q]) { lab[q] = id; st[sp++] = q; } } }
+      comps.push({ id, n, minx, maxx, miny, maxy, edge: minx === 0 || miny === 0 || maxx === W - 1 || maxy === H - 1 }); } return { lab, comps }; };
+  const keepComps = (m, pred) => { const { lab, comps } = components(m); const keep = new Uint8Array(comps.length + 1); comps.forEach(cp => { if (pred(cp)) keep[cp.id] = 1; }); const o = new Uint8Array(N); for (let i = 0; i < N; i++) o[i] = keep[lab[i]]; return o; };
+  // ---------------------------------------------------------------- thinning (Zhang–Suen)
+  const thin = m => { const o = Uint8Array.from(m); let changed = true; const idx = (x, y) => y * W + x;
+    while (changed) { changed = false; for (let pass = 0; pass < 2; pass++) { const del = [];
+      for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) { if (!o[idx(x, y)]) continue;
+        const p2 = o[idx(x, y - 1)], p3 = o[idx(x + 1, y - 1)], p4 = o[idx(x + 1, y)], p5 = o[idx(x + 1, y + 1)], p6 = o[idx(x, y + 1)], p7 = o[idx(x - 1, y + 1)], p8 = o[idx(x - 1, y)], p9 = o[idx(x - 1, y - 1)];
+        const B = p2 + p3 + p4 + p5 + p6 + p7 + p8 + p9; if (B < 2 || B > 6) continue;
+        const seq = [p2, p3, p4, p5, p6, p7, p8, p9, p2]; let A = 0; for (let k = 0; k < 8; k++) if (seq[k] === 0 && seq[k + 1] === 1) A++; if (A !== 1) continue;
+        if (pass === 0) { if (p2 * p4 * p6 || p4 * p6 * p8) continue; } else { if (p2 * p4 * p8 || p2 * p6 * p8) continue; }
+        del.push(idx(x, y)); }
+      for (const i of del) o[i] = 0; if (del.length) changed = true; } } return o; };
+  // how many branches leave a skeleton pixel: the number of 0→1 transitions round its 8 neighbours
+  const crossing = (sk, x, y) => { const at = (a, b) => (a >= 0 && b >= 0 && a < W && b < H && sk[b * W + a]) ? 1 : 0;
+    const ring = [at(x, y - 1), at(x + 1, y - 1), at(x + 1, y), at(x + 1, y + 1), at(x, y + 1), at(x - 1, y + 1), at(x - 1, y), at(x - 1, y - 1)];
+    let t = 0; for (let k = 0; k < 8; k++) if (ring[k] === 0 && ring[(k + 1) % 8] === 1) t++; return t; };
+  // spurs: a thinned ribbon grows little side branches at every bump; cut the ones shorter than `spur`
+  const prune = (sk0, spur, rounds = 2) => { const sk = Uint8Array.from(sk0);
+    const nbs = (x, y) => { const out = []; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { if (!dx && !dy) continue; const xx = x + dx, yy = y + dy; if (xx >= 0 && yy >= 0 && xx < W && yy < H && sk[yy * W + xx]) out.push([xx, yy]); } return out; };
+    for (let r = 0; r < rounds; r++) { const cut = [];
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { if (!sk[y * W + x] || crossing(sk, x, y) !== 1) continue;
+        const path = [[x, y]]; let px = x, py = y, [cx, cy] = nbs(x, y)[0], ok = false;
+        for (let k = 0; k < spur; k++) { const c = crossing(sk, cx, cy); if (c >= 3) { ok = true; break; } if (c <= 1) break; path.push([cx, cy]); const n = nbs(cx, cy); const nx = n.find(([a, b]) => !(a === px && b === py) && !path.some(([q, w]) => q === a && w === b)); if (!nx) break; px = cx; py = cy; [cx, cy] = nx; }
+        if (ok) cut.push(...path); }
+      for (const [a, b] of cut) sk[b * W + a] = 0; }
+    return sk; };
+  // ---------------------------------------------------------------- skeleton → polylines
+  const trace = (sk, minLen) => {
+    const nb = (x, y) => { const out = []; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { if (!dx && !dy) continue; const xx = x + dx, yy = y + dy; if (xx >= 0 && yy >= 0 && xx < W && yy < H && sk[yy * W + xx]) out.push([xx, yy]); } return out; };
+    const deg = new Uint8Array(N); for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (sk[y * W + x]) deg[y * W + x] = crossing(sk, x, y);   // branches, not neighbours
+    const used = new Uint8Array(N); const lines = [];
+    const walk = (x0, y0, x1, y1) => { const pts = [[x0, y0], [x1, y1]]; used[y0 * W + x0] = 1; let px = x0, py = y0, x = x1, y = y1;
+      while (true) { used[y * W + x] = 1; if (deg[y * W + x] !== 2 && !(x === x1 && y === y1)) break; const n = nb(x, y).filter(([a, b]) => !(a === px && b === py) && !used[b * W + a]); if (!n.length) break; if (deg[y * W + x] >= 3 && pts.length > 2) break; px = x; py = y; [x, y] = n[0]; pts.push([x, y]); } return pts; };
+    // from every node (endpoint or junction) walk each unused branch
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const i = y * W + x; if (!sk[i] || deg[i] === 2) continue; for (const [a, b] of nb(x, y)) { if (used[b * W + a]) continue; lines.push(walk(x, y, a, b)); } }
+    // leftover loops with no nodes
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const i = y * W + x; if (!sk[i] || used[i]) continue; const n = nb(x, y); if (n.length) lines.push(walk(x, y, n[0][0], n[0][1])); }
+    const len = p => { let L = 0; for (let i = 1; i < p.length; i++) L += Math.hypot(p[i][0] - p[i - 1][0], p[i][1] - p[i - 1][1]); return L; };
+    return lines.filter(p => len(p) >= minLen).map(p => simplify(p, opts.eps || 2.5));
+  };
+  const simplify = (pts, eps) => { if (pts.length < 3) return pts; const dmax = (a, b, p) => { const dx = b[0] - a[0], dy = b[1] - a[1], l2 = dx * dx + dy * dy || 1; const t = Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / l2)); return Math.hypot(p[0] - a[0] - dx * t, p[1] - a[1] - dy * t); };
+    const rec = (i, j, out) => { let best = 0, bi = -1; for (let k = i + 1; k < j; k++) { const dd = dmax(pts[i], pts[j], pts[k]); if (dd > best) { best = dd; bi = k; } } if (best > eps) { rec(i, bi, out); rec(bi, j, out); } else out.push(pts[j]); };
+    const out = [pts[0]]; rec(0, pts.length - 1, out); return out; };
+  // ---------------------------------------------------------------- mask → polygons (boundary following on a downsampled grid)
+  const polys = (m, step, minArea) => { const w = Math.ceil(W / step), h = Math.ceil(H / step); const s = new Uint8Array(w * h);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { let n = 0, t = 0; for (let dy = 0; dy < step; dy++) for (let dx = 0; dx < step; dx++) { const xx = x * step + dx, yy = y * step + dy; if (xx < W && yy < H) { t++; n += m[yy * W + xx]; } } s[y * w + x] = n > t * 0.5 ? 1 : 0; }
+    const out = []; const seen = new Uint8Array(w * h); const at = (x, y) => x >= 0 && y >= 0 && x < w && y < h ? s[y * w + x] : 0;
+    // components on the small grid, then trace each one's outer boundary (Moore)
+    const lab = new Int32Array(w * h); let id = 0;
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { if (!s[y * w + x] || lab[y * w + x]) continue; id++; const st = [[x, y]]; lab[y * w + x] = id; let area = 0; let sx = x, sy = y;
+      while (st.length) { const [px, py] = st.pop(); area++; if (py < sy || (py === sy && px < sx)) { sx = px; sy = py; } for (const [a, b] of [[px - 1, py], [px + 1, py], [px, py - 1], [px, py + 1]]) if (at(a, b) && !lab[b * w + a]) { lab[b * w + a] = id; st.push([a, b]); } }
+      if (area * step * step < minArea) continue;
+      // Moore neighbour tracing from the top-left cell
+      const dirs = [[1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1], [1, -1]];
+      const isIn = (a, b) => at(a, b) && lab[b * w + a] === id;
+      let cx = sx, cy = sy, dir = 6, poly = [[cx, cy]], guard = 0;
+      do { let found = false; for (let k = 0; k < 8; k++) { const dd = (dir + 6 + k) % 8; const nx = cx + dirs[dd][0], ny = cy + dirs[dd][1]; if (isIn(nx, ny)) { cx = nx; cy = ny; dir = dd; poly.push([cx, cy]); found = true; break; } } if (!found) break; guard++; } while ((cx !== sx || cy !== sy) && guard < 100000);
+      out.push(simplify(poly.map(([a, b]) => [a * step + step / 2, b * step + step / 2]), (opts.polyEps || 1.5) * step)); }
+    return out; };
+
+  // ---------------------------------------------------------------- the drawing
+  const res = { px: { w: W, h: H } };
+  // under the red highlighter, marker reads as dark: near the green band it's the Crest, elsewhere it's a road
+  // dark-red under a red zone: a big blob is the Crest band passing under it, a thin line is a road
+  // dark-red = marker under red highlighter. A big FILLED blob of it is the Crest
+  // band passing under a zone; a long thin one is a sea stripe; a small one a road
+  const bigDR = keepComps(M.darkRed, cp => cp.n > 5000 && cp.n / ((cp.maxx - cp.minx + 1) * (cp.maxy - cp.miny + 1)) > 0.25);
+  const nearRed = dilate(M.red, 40);
+  M.green = or(M.green, bigDR);
+  M.blue = or(M.blue, and(and(M.darkRed, not(bigDR)), nearRed));
+  M.dark = or(M.dark, and(M.darkRed, not(or(bigDR, nearRed))));
+  // roads: blue, closed to heal marker gaps; drop specks
+  let blue = keepComps(close(M.blue, 2), cp => cp.n > 120);
+  res.roads = trace(prune(thin(blue), 14), 24);
+  // the Crest: the green band made solid (its black centre line filled in) → one centreline
+  // the Crest is the THICK green: a blue road under yellow highlighter reads green too, but thin
+  const greenThick = keepComps(dilate(erode(close(M.green, 6), 13), 10), cp => cp.n > 6000);
+  res.crest = trace(prune(thin(greenThick), 30, 3), 80);
+  // blobs
+  const orange = keepComps(close(M.orange, 4), cp => cp.n > 3000), red = keepComps(close(M.red, 4), cp => cp.n > 3000), yellow = keepComps(close(M.yellow, 4), cp => cp.n > 6000);
+  res.canyon = polys(orange, 4, 4000); res.zones = polys(red, 4, 3000); res.lowland = polys(yellow, 4, 6000);
+  // black = water: hatching → lakes (dense, not on the edge of the photo), long
+  // diagonal stripes → the open sea (a blob touching the top or right edge), thin
+  // black lines in the valleys and the canyon → rivers
+  const ink = keepComps(or(M.black, M.dark), cp => !((cp.minx === 0 || cp.maxy === H - 1) && cp.n > 400));   // the photo's left/bottom frame shadow is not ink
+  const dens = density(ink, 14), hatch = keepComps(close(thresh(dens, 0.27), 6), cp => cp.n > 1200 && !cp.edge);    // real hatching is dense; a single river line is not
+  // the sea: the long stripes in the top-right corner — the convex hull of every long ink line there
+  const { lab: inkLab, comps: inkComps } = components(ink);
+  const stripeIds = new Set(inkComps.filter(cp => cp.n > 600 && (cp.maxx - cp.minx > 200 || cp.maxy - cp.miny > 200) && cp.minx > W * 0.6 && cp.miny < H * 0.6).map(cp => cp.id));
+  const stripePts = []; for (let y = 0; y < H; y += 3) for (let x = 0; x < W; x += 3) if (stripeIds.has(inkLab[y * W + x])) stripePts.push([x, y]);
+  const hull = pts => { pts = pts.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]); const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]); const lo = [], up = [];
+    for (const p of pts) { while (lo.length >= 2 && cross(lo[lo.length - 2], lo[lo.length - 1], p) <= 0) lo.pop(); lo.push(p); }
+    for (const p of pts.reverse()) { while (up.length >= 2 && cross(up[up.length - 2], up[up.length - 1], p) <= 0) up.pop(); up.push(p); }
+    return lo.slice(0, -1).concat(up.slice(0, -1)); };
+  const seaHull = stripePts.length > 50 ? hull(stripePts) : null;
+  const seaBlob = new Uint8Array(N);
+  if (seaHull) { const poly = seaHull; for (let y = 0; y < H; y++) { const xs = []; for (let a = 0, b = poly.length - 1; a < poly.length; b = a++) { const [xa, ya] = poly[a], [xb, yb] = poly[b]; if ((ya > y) !== (yb > y)) xs.push(xa + (y - ya) / (yb - ya) * (xb - xa)); } xs.sort((p, q) => p - q); for (let k = 0; k + 1 < xs.length; k += 2) for (let x = Math.max(0, Math.ceil(xs[k])); x <= Math.min(W - 1, xs[k + 1]); x++) seaBlob[y * W + x] = 1; } }
+  const hatchClean = and(hatch, not(or(dilate(greenThick, 4), seaBlob)));
+  res.lakes = polys(hatchClean, 4, 1500); res.sea = seaHull ? [seaHull] : [];
+  const lowOrCanyon = dilate(or(yellow, orange), 8);
+  const riverInk = and(and(ink, lowOrCanyon), not(dilate(or(hatch, seaBlob), 6)));
+  res.rivers = trace(prune(thin(close(keepComps(riverInk, cp => cp.n > 60), 3)), 12), 50);
+  res.canyonRoads = [];
+  // a debug picture: what got classified as what, and the traced lines on top
+  const out = g.createImageData(W, H), o = out.data;
+  const tint = { blue: [40, 90, 255], green: [40, 160, 60], black: [20, 20, 20], dark: [120, 60, 20], darkRed: [150, 20, 90], red: [230, 40, 40], yellow: [240, 220, 40], orange: [240, 140, 30] };
+  for (let i = 0; i < N; i++) { let cc = [245, 245, 245]; for (const k of ['yellow', 'orange', 'red', 'green', 'blue', 'dark', 'darkRed', 'black']) if (M[k][i]) cc = tint[k]; o[i * 4] = cc[0]; o[i * 4 + 1] = cc[1]; o[i * 4 + 2] = cc[2]; o[i * 4 + 3] = 255; }
+  g.putImageData(out, 0, 0);
+  const drawLines = (lines, col, w) => { g.strokeStyle = col; g.lineWidth = w; g.lineJoin = 'round'; for (const p of lines) { g.beginPath(); p.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.stroke(); } };
+  const drawPolys = (ps, col) => { g.strokeStyle = col; g.lineWidth = 3; for (const p of ps) { g.beginPath(); p.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.closePath(); g.stroke(); } };
+  drawLines(res.roads, '#ffffff', 3); drawLines(res.crest, '#00ffcc', 5); drawLines(res.rivers, '#ff00ff', 4);
+  drawPolys(res.lakes, '#00ffff'); drawPolys(res.sea, '#0044ff'); drawPolys(res.zones, '#ff0088'); drawPolys(res.canyon, '#ff8800'); drawPolys(res.lowland, '#cccc00');
+  res.debug = c.toDataURL('image/png');
+  // class counts inside probe boxes (debugging the classifier): opts.boxes = [[x0,y0,x1,y1],...]
+  if (opts.boxes) res.boxes = opts.boxes.map(([x0, y0, x1, y1]) => { const o = {}; for (const k of Object.keys(M)) { let n = 0; for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) n += M[k][y * W + x]; o[k] = n; } o.area = (x1 - x0) * (y1 - y0); let hs = 0, ss = 0, vs = 0, n = 0; for (let y = y0; y < y1; y += 3) for (let x = x0; x < x1; x += 3) { const i = (y * W + x) * 4, r = d[i] / 255, gg = d[i + 1] / 255, b = d[i + 2] / 255, mx = Math.max(r, gg, b), mn = Math.min(r, gg, b); vs += mx; ss += mx ? (mx - mn) / mx : 0; n++; } o.meanS = +(ss / n).toFixed(2); o.meanV = +(vs / n).toFixed(2); return o; });
+  res.counts = { blue: count(M.blue), green: count(M.green), black: count(M.black), dark: count(M.dark), red: count(M.red), yellow: count(M.yellow), orange: count(M.orange) };
+  return res;
+};
+</script>
