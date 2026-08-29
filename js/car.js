@@ -104,6 +104,9 @@ export class Car {
   // env: { terrain, surfaceAt(x, z) }   inp: {throttle, brake, steer, handbrake}
   // aids: 0 = nothing, 1 = ABS + traction control + a firm hand on the yaw
   step(dt, inp, env, aids = 0.35) {
+    // the rail is for hands on the wheel: the autopilot (linearSteer) drives the plant it was
+    // tuned on — with the rail its lane/yaw gains overshoot and Canyon Pass goes off-road
+    this.railOn = !inp.linearSteer;
     dt = Math.min(dt, 0.05);
     this.updateSteer(dt, inp, aids);
     // surfaces are sampled once per frame, not per substep — they don't change
@@ -139,7 +142,8 @@ export class Car {
     // 21, not 15: the cap is a lateral-g limit, and 15 was ~1.5 g — fine when
     // cars topped out at 145, but they do 200+ now and measure 2.4 g, so a
     // 1.5 g cap left the wheel at literally 0 degrees at top speed.
-    const kMax = Math.min(0.25, 21 / Math.max(speed * speed, 1));      // 1/m, ~2.1 g
+    const A = this.railOn === false ? 1 : 1 + Math.min(this.p.railMax ?? 9, (this.p.rail || 0) * speed * speed);   // the rail: grip grows with speed, to a cap (presets ARC)
+    const kMax = Math.min(0.25, 21 * A / Math.max(speed * speed, 1));  // 1/m, ~2.1 g × the rail
     const capped = Math.min(this.p.maxSteer, Math.atan(this.L * kMax) * 1.25);  // 1.25: room for slip
     return capped + (this.p.maxSteer - capped) * (1 - Math.max(0, Math.min(1, aids)));
   }
@@ -283,6 +287,11 @@ export class Car {
 
     let Fx = 0, Fy = 0, Mz = 0;
     const drive = this.drivetrain(h, inp, aids);
+    // the rail (presets ARC.rail): extra lateral tyre force, × rail × v². It goes into the body's
+    // lateral force and yaw moment — so the car really turns tighter — but NOT into the roll
+    // moment (FyT below stays the honest tyre force), so 7 g of cornering doesn't put it on two wheels
+    const railA = this.railOn === false ? 0 : Math.min(p.railMax ?? 9, (p.rail || 0) * this.u * this.u);
+    let FxB = 0, FyB = 0, MzB = 0;
     for (const w of this.wheels) {
       const vxw = this.u - this.r * w.b;
       const vyw = this.v + this.r * w.a;
@@ -333,6 +342,7 @@ export class Car {
       Fx += fx * cd - fy * sd;
       Fy += fx * sd + fy * cd;
       Mz += (fx * sd + fy * cd) * w.a - (fx * cd - fy * sd) * w.b;
+      if (railA > 0) { const fb = fy * railA; FxB += -fb * sd; FyB += fb * cd; MzB += fb * cd * w.a + fb * sd * w.b; }
     }
     this.slipF = Math.atan2(this.v + this.r * p.lf, Math.max(Math.abs(this.u), 2.2)) - this.steer;
     this.slipR = Math.atan2(this.v - this.r * p.lr, Math.max(Math.abs(this.u), 2.2));
@@ -352,7 +362,8 @@ export class Car {
     if (!this.airborne) Mpitch += -df * p.aero.split * p.lf + df * (1 - p.aero.split) * p.lr;
     else Mpitch += -this.pitch * this.ipitch * 9 - this.pitchV * this.ipitch * 3;
 
-    const FxT = Fx, FyT = Fy;                         // what the ground actually pushes with
+    const FxT = Fx, FyT = Fy;                         // what the ground actually pushes with (pitch/roll: the honest forces)
+    Fx += FxB; Fy += FyB; Mz += MzB;                  // the rail, after: it moves the car, it doesn't roll it
 
     // ------------------------------------------------------------- gravity
     if (this.airborne) {

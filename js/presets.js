@@ -16,7 +16,12 @@ export const VMAX_SCALE = 200 / 112;   // an ordinary street car really does 200
 // is traction-limited at something stupid, torque up to use it, drag up so the
 // top end doesn't leave the map, load sensitivity down so a lifted inside wheel
 // isn't a spin. The cars keep their characters relative to each other.
-const ARC = { torque: 3.4, grip: 1.55, loadSens: 0.6, brakeG: 1.5, cd: 2.3, steerFalloff: 0.85, cgH: 0.55 };
+const ARC = { torque: 3.4, grip: 1.55, loadSens: 0.6, brakeG: 1.5, cd: 2.3, steerFalloff: 0.85, cgH: 0.55,
+  // RAIL: cornering grip that grows with speed (kart games never let the turning circle grow
+  // with v²). Extra LATERAL tyre force = base × rail × v² — at a real 80 mph (40 on the dial)
+  // that's ×3.3, so a 15 m hairpin holds with room; at walking pace it's nothing. Adam,
+  // 2026-08-29: "I should be able to do a hairpin at 40 with room to spare".
+  rail: 0.0065, railMax: 9 };   // and it stops growing at ×10, so 120+ on the dial doesn't turn the stick into a hair trigger
 // cgH: with 2 g of grip and a real CG height the inside wheels lift at 1.5 g and
 // the car two-wheels through every fast corner. Arcade cars sit low.
 
@@ -65,6 +70,7 @@ function build(o) {
     // oversteer car has a critical speed. Rear wing moves that past the top end.
     lift: Math.max(1.2, (o.lift ?? 0) * 2), aeroSplit: o.aeroSplit ?? 0.36,
     cgH: o.cgH * ARC.cgH,
+    rail: o.rail ?? ARC.rail, railMax: o.railMax ?? ARC.railMax,
   };
   const lf = mdl.front * S * (o.model.stretchZ ?? 1), lr = mdl.back * S * (o.model.stretchZ ?? 1);
   const tyreR = mdl.wheelR * S * (o.model.wheelScale ?? 1);
@@ -98,7 +104,7 @@ function build(o) {
     gears: o.gears, reverse: o.reverse ?? o.gears[0] * 0.95, finalDrive,
     drive: o.drive, torqueSplit: o.torqueSplit ?? 0.4, diffLock: o.diffLock ?? 0.4,
     brakeTorque: o.brakeTorque ?? mass * 9.81 * tyreR * (o.brakeG ?? 1.25), brakeBias: o.brakeBias ?? 0.68,
-    maxSteer: o.maxSteer, steerFalloff: o.steerFalloff ?? 0.56,
+    maxSteer: o.maxSteer, steerFalloff: o.steerFalloff ?? 0.56, rail: o.rail, railMax: o.railMax,
     // how hard the caster pushes the wheel back to centre, rad/s at full grip
     satGain: o.satGain ?? 2.4,
     // arcade torque makes everything gear-limited at redline, so top speed is a
