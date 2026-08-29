@@ -87,7 +87,8 @@ const editor = new Editor({ scene, camera, renderer, input, hud, car, doc: cityD
 const cloud = new Cloud();                                                 // …and where they go when you sign in
 let cloudSaveT = null;
 progress.onSave = data => { clearTimeout(cloudSaveT); cloudSaveT = setTimeout(() => cloud.save(data), 1500); };
-function refreshAccountChip() { const c = document.getElementById('signinChip'); if (c) c.textContent = cloud.email ? ('✓ ' + cloud.email + '  ·  I to sign out') : 'SIGN IN · email'; }
+let linkSent = false;                                                     // a magic link is out; the chip offers to paste it
+function refreshAccountChip() { const c = document.getElementById('signinChip'); if (c) c.textContent = cloud.email ? ('✓ ' + cloud.email + '  ·  I to sign out') : linkSent ? 'LINK SENT · click to paste it' : 'SIGN IN · email'; }
 cloud.onChange = async () => {
   refreshAccountChip();
   if (cloud.user) { const remote = await cloud.load(); progress.replace(mergeProgress(progress.data, remote)); hud.toast('SAVES SYNCED · ' + cloud.email, 2000); }
@@ -752,11 +753,17 @@ const screens = new Screens({
   onOo: v => { S.oo = v; if (carMesh) setDriver(carMesh, v); try { localStorage.setItem('cruise.oo', v); } catch {} },
   progress,
   onSignIn: async () => {
-    if (cloud.email) { await cloud.signOut(); refreshAccountChip(); return; }
+    if (cloud.email) { await cloud.signOut(); linkSent = false; refreshAccountChip(); return; }
+    if (linkSent) {
+      // the link went out; if it opened a dead page (a localhost Site URL), the session is still in the link itself
+      const pasted = prompt('Paste the link from the email here (the full address — it carries your sign-in). Or leave empty to send a new one.');
+      if (pasted && pasted.trim()) { const { error } = await cloud.acceptLink(pasted); if (error) alert('That link did not work: ' + error); else { linkSent = false; refreshAccountChip(); } return; }
+    }
     const email = prompt('Your email — a sign-in link gets sent there. No password, ever.');
     if (!email) return;
     const { error } = await cloud.signIn(email.trim());
-    alert(error ? 'Could not send the link: ' + error : 'Check your inbox for the link. Click it, and your saves follow you.');
+    if (error) alert('Could not send the link: ' + error);
+    else { linkSent = true; refreshAccountChip(); alert('Check your inbox for the link. Click it and you are in. If the link opens a page that will not load, copy the address it lands on and click SIGN IN again to paste it.'); }
   },
   onBuy: id => { hud.toast('BOUGHT · ' + PRESETS[id].label, 1500); },
   onNoCash: () => { hud.toast('NOT ENOUGH CASH — race for it', 1500); },

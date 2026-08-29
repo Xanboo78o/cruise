@@ -30,6 +30,23 @@ export class Cloud {
   }
   async signOut() { await this.ready; if (this.sb) await this.sb.auth.signOut(); this.user = null; }
 
+  // the link from the email, pasted by hand. When the Supabase project's Site
+  // URL points somewhere dead (localhost), the link still carries the session
+  // in its hash (#access_token=…&refresh_token=…) or a ?code= — take it here.
+  async acceptLink(text) {
+    await this.ready; if (!this.sb) return { error: 'offline' };
+    try {
+      const u = new URL(text.trim());
+      const h = new URLSearchParams(u.hash.replace(/^#/, ''));
+      const at = h.get('access_token'), rt = h.get('refresh_token');
+      if (at && rt) { const { error } = await this.sb.auth.setSession({ access_token: at, refresh_token: rt }); return { error: error ? error.message : null }; }
+      const code = u.searchParams.get('code');
+      if (code) { const { error } = await this.sb.auth.exchangeCodeForSession(code); return { error: error ? error.message : null }; }
+      const err = h.get('error_description') || u.searchParams.get('error_description');
+      return { error: err || 'that link has no session in it (open it once first, then copy the address it lands on)' };
+    } catch { return { error: 'not a link' }; }
+  }
+
   // pull the cloud save; returns the data object or null
   async load() {
     await this.ready; if (!this.sb || !this.user) return null;
