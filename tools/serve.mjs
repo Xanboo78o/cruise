@@ -20,8 +20,9 @@ createServer(async (req, res) => {
       req.on('end', async () => {
         try {
           const doc = JSON.parse(body);
-          await writeFile(join(ROOT, 'assets/city/sanoozi.json'), JSON.stringify(doc, null, 1));
-          console.log(new Date().toISOString().slice(11, 19), 'saved', doc.objects?.length ?? 0, 'objects,', doc.roads ? doc.roads.length + ' roads' : 'spec roads');
+          const name = (url.searchParams.get('doc') || 'sanoozi').replace(/[^a-z0-9_-]/gi, '') || 'sanoozi';
+          await writeFile(join(ROOT, `assets/city/${name}.json`), JSON.stringify(doc, null, 1));
+          console.log(new Date().toISOString().slice(11, 19), name, 'saved', doc.objects?.length ?? 0, 'objects,', doc.roads ? doc.roads.length + ' roads' : 'spec roads');
           res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"ok":true}');
         } catch (e) { res.writeHead(400); res.end(String(e)); }
       });

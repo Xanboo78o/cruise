@@ -9,8 +9,9 @@
 
 import { ROADS } from './spec.js';
 
-export const CITY_URL = 'assets/city/sanoozi.json';
-const DRAFT_KEY = 'cruise.city.draft';
+export const DOC_NAME = ((typeof location !== 'undefined' && new URLSearchParams(location.search).get('doc')) || 'sanoozi').replace(/[^a-z0-9_-]/gi, '') || 'sanoozi';
+export const CITY_URL = `assets/city/${DOC_NAME}.json`;
+const DRAFT_KEY = 'cruise.city.draft' + (DOC_NAME === 'sanoozi' ? '' : ':' + DOC_NAME);
 export const DOC_V = 2;
 
 export function emptyDoc() { return { v: DOC_V, t: 0, base: 'flat', autofill: false, roads: [], objects: [], terrain: null }; }
@@ -71,7 +72,7 @@ export async function saveCityDoc(doc) {
   try { localStorage.setItem(DRAFT_KEY, body); } catch {}
   if (serverOk === false) return { local: true, server: false };
   try {
-    const r = await fetch('/save', { method: 'POST', headers: { 'content-type': 'application/json' }, body });
+    const r = await fetch('/save?doc=' + DOC_NAME, { method: 'POST', headers: { 'content-type': 'application/json' }, body });
     serverOk = r.ok;
     if (r.ok) { try { localStorage.removeItem(DRAFT_KEY); } catch {} }
     return { local: true, server: r.ok };
@@ -85,7 +86,7 @@ export function clearDraft() { try { localStorage.removeItem(DRAFT_KEY); } catch
 
 export async function exportCityDoc(doc) {
   const blob = new Blob([await serialize(doc)], { type: 'application/json' });
-  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'sanoozi.json';
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = DOC_NAME + '.json';
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 }

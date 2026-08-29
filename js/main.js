@@ -586,8 +586,9 @@ function frame() {
       for (const rc of RACES) { if (Math.hypot(car.x - rc.gate[0], car.z - rc.gate[1]) < 16) { nearGate = rc; break; } }
       if (nearGate) {
         const holding = input.keys.has('enter') || !!(input.pad && input.pad.buttons[0] && input.pad.buttons[0].pressed);
-        gateHold = holding ? gateHold + dt : 0;
-        if (gateHold === 0 && Math.random() < dt * 2) hud.toast(nearGate.name + ' · HOLD ENTER / A', 900);
+        const gateOk = !MAKER && !editor.active;                                // the maker has no races; Enter there finishes a road
+        gateHold = holding && gateOk ? gateHold + dt : 0;
+        if (gateOk && gateHold === 0 && Math.random() < dt * 2) hud.toast(nearGate.name + ' · HOLD ENTER / A', 900);
         if (gateHold > 0.6) { gateHold = 0; startWorldRace(nearGate); }
       } else gateHold = 0;
     }

@@ -213,23 +213,59 @@ export class WorldBuilder {
   }
 
   // ------------------------------------------------------------------ roads
+  // a road is a slab: a deck, a skirt down each side (to the ground when it's at
+  // grade, a 1.6 m edge when it's a bridge), a kerb along paved edges, and
+  // pillars wherever the deck is well above the land
   buildRoads() {
     const T = this.T;
     const paved = new THREE.Color(0x4a4f58), gravel = new THREE.Color(0x9a8664), sand = new THREE.Color(0xe0cf98), pier = new THREE.Color(0x8a6e4e);
+    const concrete = new THREE.Color(0x8d8a82), pillarC = new THREE.Color(0x77746e), kerbC = new THREE.Color(0xb3b0a8);
     const pos = [], col = [], idx = [];
+    const V = (x, y, z, c) => { pos.push(x, y, z); col.push(c.r, c.g, c.b); return pos.length / 3 - 1; };
+    const quad = (a, b, c, d) => idx.push(a, b, c, a, c, d);                 // a,b,c,d counter-clockwise seen from the outside
     for (const r of T.roads) {
       const hw = r.T.w / 2, step = 6;
       const n = Math.max(2, Math.ceil(r.L / step) + 1);
-      const base = pos.length / 3;
       const c = r.T.surf === 'gravel' ? gravel : r.T.surf === 'sand' ? sand : r.type === 'pier' ? pier : paved;
+      const kerbed = r.T.surf === 'road' && r.type !== 'pier', skirted = r.type !== 'sand';
+      let prev = null, sincePillar = 0;
       for (let i = 0; i < n; i++) {
         const s = (i / (n - 1)) * r.L;
-        const p = T.pointAt(r, s), y = T.roadY(r, s) + 0.08;
+        const p = T.pointAt(r, s), ry = T.roadY(r, s), y = ry + 0.08;
         const nx = p.tz, nz = -p.tx;
         const shade = 1 - 0.15 * vnoise(p.x * 0.05, p.z * 0.05);
-        pos.push(p.x + nx * hw, y, p.z + nz * hw, p.x - nx * hw, y, p.z - nz * hw);
-        col.push(c.r * shade, c.g * shade, c.b * shade, c.r * shade, c.g * shade, c.b * shade);
-        if (i < n - 1) { const a = base + i * 2; idx.push(a, a + 2, a + 1, a + 2, a + 3, a + 1); }
+        const cs = c.clone().multiplyScalar(shade);
+        const L = [p.x + nx * hw, p.z + nz * hw], R = [p.x - nx * hw, p.z - nz * hw];
+        const landL = T.land(L[0], L[1]), landR = T.land(R[0], R[1]), landC = T.land(p.x, p.z);
+        const cur = {
+          dl: V(L[0], y, L[1], cs), dr: V(R[0], y, R[1], cs),                                       // deck edges
+          sl: V(L[0], Math.max(landL - 0.4, y - 1.6), L[1], concrete), sr: V(R[0], Math.max(landR - 0.4, y - 1.6), R[1], concrete),   // skirt bottoms
+          kl: kerbed ? [V(L[0], y + 0.3, L[1], kerbC), V(L[0] - nx * 0.55, y + 0.3, L[1] - nz * 0.55, kerbC), V(L[0] - nx * 0.55, y, L[1] - nz * 0.55, kerbC)] : null,
+          kr: kerbed ? [V(R[0], y + 0.3, R[1], kerbC), V(R[0] + nx * 0.55, y + 0.3, R[1] + nz * 0.55, kerbC), V(R[0] + nx * 0.55, y, R[1] + nz * 0.55, kerbC)] : null,
+        };
+        if (prev) {
+          quad(prev.dl, cur.dl, cur.dr, prev.dr);                                                   // deck (faces up)
+          if (skirted) { quad(prev.sl, cur.sl, cur.dl, prev.dl); quad(prev.dr, cur.dr, cur.sr, prev.sr); }   // skirts (face out)
+          if (kerbed) {
+            quad(prev.kl[0], cur.kl[0], cur.kl[1], prev.kl[1]); quad(prev.kl[1], cur.kl[1], cur.kl[2], prev.kl[2]);   // left kerb: top, inner face
+            quad(prev.kr[1], cur.kr[1], cur.kr[0], prev.kr[0]); quad(prev.kr[2], cur.kr[2], cur.kr[1], prev.kr[1]);   // right kerb
+            // the kerb's outer face is the skirt's top edge; the skirt starts at deck height so it reads as one slab
+          }
+        }
+        // pillars under a bridge, every 24 m
+        sincePillar += prev ? step : 0;
+        if (ry - landC > 3 && sincePillar >= 24 && r.type !== 'pier') {
+          sincePillar = 0;
+          for (const side of [-0.45, 0.45]) {
+            const cx = p.x + nx * hw * side, cz = p.z + nz * hw * side, hwid = 0.9, bottom = T.land(cx, cz) - 1.5;
+            const a = [cx + nx * hwid + p.tx * hwid, cz + nz * hwid + p.tz * hwid], b = [cx - nx * hwid + p.tx * hwid, cz - nz * hwid + p.tz * hwid];
+            const d = [cx - nx * hwid - p.tx * hwid, cz - nz * hwid - p.tz * hwid], e = [cx + nx * hwid - p.tx * hwid, cz + nz * hwid - p.tz * hwid];
+            const corners = [a, b, d, e], top = [], bot = [];
+            for (const [qx, qz] of corners) { top.push(V(qx, ry - 0.3, qz, pillarC)); bot.push(V(qx, bottom, qz, pillarC)); }
+            for (let k = 0; k < 4; k++) { const k2 = (k + 1) % 4; quad(bot[k], bot[k2], top[k2], top[k]); quad(top[k], top[k2], bot[k2], bot[k]); }
+          }
+        }
+        prev = cur;
       }
       // junction plates: a disc at every polyline vertex so crossings don't show seams
       for (const [x, z] of r.pts) {
@@ -251,6 +287,7 @@ export class WorldBuilder {
     const mesh = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }));
     mesh.receiveShadow = true;
     this.group.add(mesh);
+    this.roadMesh = mesh;
   }
 
   // ----------------------------------------------------------------- forest

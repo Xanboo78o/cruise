@@ -138,7 +138,19 @@ export class Editor {
   updateCursor() {
     const p = this.pick(this.mouse.x, this.mouse.y);
     if (!p) { this.cursor = null; return; }
-    if (this.snap && this.tool === 'place') { p.x = Math.round(p.x / 2) * 2; p.z = Math.round(p.z / 2) * 2; }
+    const snapping = this.ctx.input.keys.has('g');
+    if (snapping && this.tool === 'place') { p.x = Math.round(p.x / 2) * 2; p.z = Math.round(p.z / 2) * 2; }
+    if (snapping && this.tool === 'road') {
+      // road ends first (so a road continues from another's end), then any road's centreline
+      let best = null, bd = 40;
+      const ends = [];
+      if (this.doc.roads) for (const r of this.doc.roads) { ends.push(r.pts[0], r.pts[r.pts.length - 1]); }
+      if (this.roadPts.length) ends.push(this.roadPts[0]);
+      for (const [x, z] of ends) { const dd = Math.hypot(x - p.x, z - p.z); if (dd < bd) { bd = dd; best = [x, z]; } }
+      if (best) { p.x = best[0]; p.z = best[1]; }
+      else if (this.T) { const n = this.T.nearestRoad(p.x, p.z); if (n && n.d < 30) { p.x = n.x; p.z = n.z; } }
+      this.snapped = !!best || (this.T && this.T.nearestRoad(p.x, p.z)?.d < 0.5);
+    } else this.snapped = false;
     const moved = !this.cursor || Math.hypot(p.x - this.cursor.x, p.z - this.cursor.z) > 0.25;
     this.cursor = p;
     if (moved && this.tool === 'place') this.ghostDirty = true;
@@ -193,7 +205,7 @@ export class Editor {
     if (this.selected && !terrain) this.boxFor(this.selected, this.selBox); else this.selBox.visible = false;
     if (road) {
       const pts = this.cursor && this.roadPts.length ? [...this.roadPts, [this.cursor.x, this.cursor.z]] : this.roadPts;
-      this.ribbon(this.roadPreview, spline(pts), ROAD_TYPES[this.roadType].w, ROAD_COL[this.roadType]); this.roadPreview.visible = pts.length > 1;
+      this.ribbon(this.roadPreview, spline(pts), ROAD_TYPES[this.roadType].w, this.snapped ? 0x6fe3a0 : ROAD_COL[this.roadType]); this.roadPreview.visible = pts.length > 1;
       if (this.roadSel >= 0 && this.doc.roads[this.roadSel]) { const r = this.doc.roads[this.roadSel]; this.ribbon(this.roadSelRib, spline(r.pts), ROAD_TYPES[r.type].w + 2, 0x6fe3a0); this.roadSelRib.visible = true; } else this.roadSelRib.visible = false;
       if (this.hoverRoad >= 0 && this.hoverRoad !== this.roadSel && !this.roadPts.length) { const r = this.T.roads[this.hoverRoad]; this.ribbon(this.roadHover, r.pts.length > 2 ? spline(r.pts) : r.pts, r.T.w + 4, 0xff4040); this.roadHover.visible = true; }
       else this.roadHover.visible = false;
@@ -353,10 +365,20 @@ export class Editor {
     const r = this.doc.roads && this.doc.roads[this.roadSel]; if (!r) return;
     this.pushUndo(); r.type = t; this.roadsDirty = true; this.save(); this.refreshStatus();
   }
-  applyRoads() { this.flushSave().then(() => { this.ctx.hud.toast('REBUILDING THE WORLD…', 2500); setTimeout(() => this.ctx.rebuild(), 60); }); }
+  async applyRoads() {
+    this.roadPts = [];
+    try { await this.flushSave(); } catch (e) { console.warn(e); this.ctx.hud.toast('SAVE FAILED · ' + (e.message || e), 3000); }
+    this.ctx.hud.toast('REBUILDING THE WORLD…', 2500);
+    setTimeout(() => { try { this.ctx.rebuild(); this.ctx.hud.toast('ROADS BUILT', 1200); } catch (e) { console.error(e); this.ctx.hud.toast('REBUILD FAILED · ' + (e.message || e), 4000); } }, 60);
+  }
 
   save() { this.status.saved = 'saving…'; this.refreshStatus(); clearTimeout(this.saveT); this.saveT = setTimeout(() => this.flushSave(), 700); }
-  async flushSave() { clearTimeout(this.saveT); this.saveT = null; const r = await saveCityDoc(this.doc); this.status.server = r.server; this.status.saved = r.server ? 'saved to file' : 'saved locally'; this.refreshStatus(); }
+  async flushSave() {
+    clearTimeout(this.saveT); this.saveT = null;
+    try { const r = await saveCityDoc(this.doc); this.status.server = r.server; this.status.saved = r.server ? 'saved to file' : 'saved locally'; }
+    catch (e) { console.warn('save', e); this.status.saved = 'SAVE FAILED'; this.ctx.hud.toast('SAVE FAILED · ' + (e.message || e), 3000); }
+    this.refreshStatus();
+  }
 
   // ------------------------------------------------------------------ mouse
   bindMouse() {
@@ -439,7 +461,6 @@ export class Editor {
       else if (k === 'delete' || k === 'backspace') { e.preventDefault(); if (this.tool === 'road') { if (this.roadPts.length) this.roadPts.pop(); else if (this.hoverHandle >= 0) this.roadRemovePoint(this.hoverHandle); else if (this.roadSel >= 0 && this.hoverRoad === this.roadSel) this.roadDelete(this.roadSel); else if (this.hoverRoad >= 0) this.roadDelete(this.hoverRoad); } else if (this.tool !== 'terrain' && this.tool !== 'foliage') this.removeObj(this.selected || this.hover); }
       else if (k === 'enter') { if (this.tool === 'road') this.roadFinish(); }
       else if (k === 'x') { this.setTool(this.tool === 'select' ? 'place' : 'select'); }
-      else if (k === 'g') { this.snap = !this.snap; this.ctx.hud.toast('SNAP ' + (this.snap ? 'ON · 2 m' : 'OFF'), 900); }
       else if (k === 'h') { this.root.classList.toggle('hidden'); }
       else if (k === 'f') { this.target.set(this.ctx.car.x, 0, this.ctx.car.z); }
       else if (k === 'n') { const t = prompt('Sign text', this.text || ''); if (t != null) { this.text = t.trim() || null; if (this.selected) this.changeSel(o => { if (this.text) o.text = this.text; else delete o.text; }); this.ghostDirty = true; } }
@@ -470,9 +491,10 @@ export class Editor {
         <button data-act="base">BASE</button><button data-act="autofill">OLD DISTRICTS</button><button data-act="export">EXPORT</button><button data-act="import">IMPORT</button>
         <button data-act="reset">RESET DRAFT</button>${this.maker ? '' : '<button data-act="exit">EXIT · B</button>'}
       </div>
-      <div class="ctHint">click place · shift-drag brush · drag a selected piece to move it · right-drag orbit · middle-drag pan · wheel zoom · ctrl+wheel rotate 5° · WASD move · Q/E turn · R rotate · T random · V reroll · C colour · [ ] size · N sign text · Del remove · G snap · H hide · 1-9 tabs · Tab next<br>TERRAIN: drag to sculpt (SHIFT = ×5) · [ ] or shift+wheel radius · - = strength · ROADS: click points, Enter finishes; click a road to select, drag its handles, shift-click to add a point, Del on a handle removes it</div>`;
+      <div class="ctHint">click place · shift-drag brush · drag a selected piece to move it · right-drag orbit · middle-drag pan · wheel zoom · ctrl+wheel rotate 5° · WASD move · Q/E turn · R rotate · T random · V reroll · C colour · [ ] size · N sign text · Del remove · hold G to snap (roads join roads, pieces to a 2 m grid) · H hide · 1-9 tabs · Tab next<br>TERRAIN: drag to sculpt (SHIFT = ×5) · [ ] or shift+wheel radius · - = strength · ROADS: click points, Enter finishes; click a road to select, drag its handles, shift-click to add a point, Del on a handle removes it</div>`;
     document.body.appendChild(root);
     root.addEventListener('pointerdown', e => e.stopPropagation());
+    root.addEventListener('click', e => { if (e.target.tagName === 'BUTTON') e.target.blur(); });
     root.addEventListener('wheel', e => e.stopPropagation(), { passive: true });
     const tabs = root.querySelector('#ctTabs');
     for (const [id, name] of CATS) { const b = document.createElement('button'); b.textContent = name; b.dataset.cat = id; b.onclick = () => this.setCat(id); tabs.appendChild(b); }
@@ -550,9 +572,9 @@ export class Editor {
       : this.tool === 'foliage' ? `${FOLIAGE.find(x => x[0] === b.foliage)[1]} · size ${Math.round(b.r)} m · density ${b.density.toFixed(2)} · drag to scatter · SHIFT ×5`
       : sel ? `SELECTED ${BY_ID[sel.k]?.name || sel.k} · rot ${sel.r || 0}° · size ${sel.s || 1} · drag to move · R/V/C/[ ]/N edit · Del remove`
       : this.tool === 'road' ? (this.roadSel >= 0 ? `ROAD ${this.doc.roads[this.roadSel]?.name || '#' + this.roadSel} · ${ROAD_TYPES[this.doc.roads[this.roadSel]?.type]?.name} · drag handles · shift-click adds a point · Del on a handle removes it · pick a type to change it · ESC deselect`
-        : `ROAD · ${ROAD_TYPES[this.roadType].name} · click points (3+ = a curve) · ENTER finish · click a road to select it · shift-click a road removes it`)
+        : `ROAD · ${ROAD_TYPES[this.roadType].name} · click points (3+ = a curve) · hold G to join another road · ENTER finish · click a road to select it · shift-click a road removes it`)
       : this.tool === 'select' ? 'SELECT · click an object · drag to move'
-      : `${this.piece.name} · rot ${this.rot}° · size ${this.scale}${this.colorIdx != null ? ' · colour ' + this.colorIdx : ' · colour auto'}${this.text ? ' · "' + this.text + '"' : ''}${this.snap ? ' · SNAP' : ''}`;
+      : `${this.piece.name} · rot ${this.rot}° · size ${this.scale}${this.colorIdx != null ? ' · colour ' + this.colorIdx : ' · colour auto'}${this.text ? ' · "' + this.text + '"' : ''}`;
     this.root.querySelectorAll('.ctBtns button[data-act=autofill]').forEach(b => b.classList.toggle('on', this.doc.autofill === true));
     this.root.querySelectorAll('.ctBtns button[data-act=base]').forEach(b => b.textContent = this.doc.base === 'flat' ? 'BASE: FLAT' : 'BASE: SAN OOZI');
     this.root.querySelectorAll('.ctBtns button[data-act=apply]').forEach(b => b.classList.toggle('warn', this.roadsDirty));

@@ -178,12 +178,14 @@ export class WorldTerrain {
         else if (r.y === 'trench') ys[i] = this.land(p.x, p.z) - 9;
         else ys[i] = this.land(p.x, p.z);
       }
-      // grade clamp: a road climbs at most `gMax` — the land gets cut and
-      // filled around it, which is what real roads do to hills
-      const gMax = (r.type === 'canyon' || r.type === 'gravel') ? 0.10 : r.type === 'highway' ? 0.07 : 0.12;
-      if (typeof r.y !== 'number') {
-        for (let i = 1; i < n; i++) ys[i] = Math.max(ys[i - 1] - gMax * step, Math.min(ys[i - 1] + gMax * step, ys[i]));
-        for (let i = n - 2; i >= 0; i--) ys[i] = Math.max(ys[i + 1] - gMax * step, Math.min(ys[i + 1] + gMax * step, ys[i]));
+      // the road never cuts into the land: it's the lowest profile that stays ON
+      // or ABOVE the ground with a grade of at most gMax both ways — so it rides
+      // the land where it can, ramps up to a cliff, and bridges over every dip
+      const gMax = (r.type === 'canyon' || r.type === 'gravel') ? 0.16 : r.type === 'highway' ? 0.09 : 0.14;
+      const landYs = ys.slice();
+      if (typeof r.y !== 'number' && r.y !== 'trench') {
+        for (let i = 1; i < n; i++) ys[i] = Math.max(ys[i], ys[i - 1] - gMax * step);
+        for (let i = n - 2; i >= 0; i--) ys[i] = Math.max(ys[i], ys[i + 1] - gMax * step);
       }
       // smooth: a wide box blur, twice
       for (let pass = 0; pass < 2; pass++) {
@@ -192,7 +194,8 @@ export class WorldTerrain {
         for (let i = 0; i < n; i++) { let s = 0, c = 0; for (let k = -w; k <= w; k++) { const j = i + k; if (j >= 0 && j < n) { s += ys[j]; c++; } } out[i] = s / c; }
         ys.set(out);
       }
-      r.ys = ys; r.L = L; r.step = L / (n - 1);
+      if (typeof r.y !== 'number' && r.y !== 'trench') for (let i = 0; i < n; i++) ys[i] = Math.max(ys[i], landYs[i]);   // the blur never sinks the deck under a crest
+      r.ys = ys; r.L = L; r.step = L / (n - 1); r.landYs = landYs;
     }
   }
 
@@ -258,12 +261,11 @@ export class WorldTerrain {
     const r = n.road, hw = r.T.w / 2, cut = r.T.cut;
     if (n.d > hw + cut) return land;
     const ry = this.roadY(r, n.s);
-    if (r.type === 'pier') return n.d <= hw ? ry : land;    // a pier stands on legs, it doesn't shape the beach
     if (n.d <= hw) return ry;
-    // shoulder: blends from the road's height to the land over `cut` metres,
-    // with a small kerb lip so the edge reads
-    const k = sm((n.d - hw) / cut);
-    return lerp(ry + 0.06, land, k);
+    // beside the road the land is the land — no cut, no fill. Only where the deck
+    // sits at grade does a short lip carry the ground up to its edge.
+    if (n.d <= hw + 1.5 && Math.abs(ry - land) < 1.2) return lerp(ry + 0.06, land, sm((n.d - hw) / 1.5));
+    return land;
   }
 
   surfaceAt(x, z) {
