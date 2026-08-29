@@ -18,3 +18,13 @@ it finds — with none of them it just runs silent, no errors.
 
 I can't hear audio, so I can't tell you which of them sounds right — grab a few
 candidates, drop one in, drive, swap it if it's wrong. That's the whole workflow.
+
+## Music
+
+The radio is a different story: it needs no files at all. Every song is
+synthesised live by `js/music.js` from the charts in `js/songs.js` (three
+stations: GROUP B, ROCKERS, JUMVAS). Audition, export a WAV, or run the numbers
+on `radio.html`; `node tools/musiccheck.mjs all --wav` does the same headlessly.
+
+Cover art goes in `assets/music/covers/<station>/<songId>.png` (square, 512 px
+is plenty) — the NOW PLAYING card and the radio page pick it up automatically.

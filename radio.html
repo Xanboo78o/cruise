@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SAN OOZI RADIO</title>
+<style>
+  :root { --bg: #0b0d12; --panel: rgba(255,255,255,0.05); --line: rgba(255,255,255,0.1); --dim: #8a93a6; --fg: #eef1f6; --acc: #ff4d2e; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: radial-gradient(1200px 600px at 50% -10%, #1a1f2e, var(--bg)); color: var(--fg); font: 14px/1.45 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; min-height: 100vh; }
+  header { padding: 22px 28px 10px; display: flex; align-items: baseline; gap: 18px; flex-wrap: wrap; }
+  header h1 { margin: 0; font-size: 22px; letter-spacing: 4px; font-weight: 800; }
+  header small { color: var(--dim); letter-spacing: 2px; font-size: 11px; }
+  main { padding: 0 28px 40px; max-width: 1100px; }
+  .stations { display: flex; gap: 10px; margin: 12px 0 18px; flex-wrap: wrap; }
+  .st { border: 1px solid var(--line); background: var(--panel); border-radius: 12px; padding: 10px 16px; cursor: pointer; min-width: 190px; transition: transform .1s; }
+  .st:hover { transform: translateY(-1px); }
+  .st.sel { border-color: var(--c); box-shadow: 0 0 0 1px var(--c), 0 8px 30px -14px var(--c); }
+  .st b { display: block; letter-spacing: 3px; font-size: 15px; color: var(--c); }
+  .st span { color: var(--dim); font-size: 11px; letter-spacing: 1px; }
+  .songs { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
+  .song { display: grid; grid-template-columns: 84px 1fr; gap: 12px; border: 1px solid var(--line); background: var(--panel); border-radius: 14px; padding: 10px; align-items: center; }
+  .song.on { border-color: var(--c); }
+  .cover { width: 84px; height: 84px; border-radius: 10px; overflow: hidden; background: #222; display: grid; place-items: center; font-weight: 900; font-size: 26px; letter-spacing: 1px; color: #000; }
+  .cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .song h3 { margin: 0; font-size: 16px; letter-spacing: 2px; }
+  .song p { margin: 2px 0 8px; color: var(--dim); font-size: 12px; }
+  .row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  button { background: #fff; color: #000; border: 0; border-radius: 999px; padding: 6px 13px; font-weight: 700; letter-spacing: 1px; font-size: 12px; cursor: pointer; }
+  button.ghost { background: transparent; color: var(--fg); border: 1px solid var(--line); }
+  button:disabled { opacity: .4; cursor: default; }
+  #deck { position: sticky; bottom: 0; margin-top: 22px; border-top: 1px solid var(--line); background: rgba(11,13,18,0.85); backdrop-filter: blur(10px); padding: 12px 28px; display: grid; grid-template-columns: 1fr auto; gap: 14px; align-items: center; }
+  #np { display: flex; align-items: center; gap: 12px; min-width: 0; }
+  #np .cover { width: 52px; height: 52px; font-size: 16px; }
+  #np b { letter-spacing: 2px; }
+  #np small { color: var(--dim); display: block; letter-spacing: 1px; font-size: 11px; }
+  #sec { font-family: ui-monospace, monospace; font-size: 12px; color: var(--dim); }
+  #sec b { color: var(--fg); }
+  canvas#viz { width: 100%; height: 70px; display: block; border-radius: 8px; background: rgba(0,0,0,0.35); }
+  .knobs { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; font-size: 11px; color: var(--dim); letter-spacing: 1px; }
+  .knobs label { display: flex; gap: 6px; align-items: center; }
+  input[type=range] { width: 120px; accent-color: #fff; }
+  #report { white-space: pre-wrap; font-family: ui-monospace, monospace; font-size: 11.5px; color: #cdd3de; background: rgba(0,0,0,0.35); border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-top: 16px; display: none; }
+  #hint { color: var(--dim); font-size: 12px; margin: 6px 0 0; }
+</style>
+</head>
+<body>
+<header><h1>SAN OOZI RADIO</h1><small>XANBOO78O RECORDS · everything you hear is synthesised live</small></header>
+<main>
+  <div class="stations" id="stations"></div>
+  <div class="songs" id="songs"></div>
+  <p id="hint">Play one and drive the INTENSITY slider: that is what the game does with your speed. DROP IN 3 s restarts the song so the drop lands on GO. WAV renders the whole thing offline for your videos. CHECK renders it and prints the numbers I use instead of ears.</p>
+  <div id="report"></div>
+</main>
+<div id="deck">
+  <div>
+    <div id="np"><div class="cover" id="npCover">—</div><div><b id="npTitle">NOTHING PLAYING</b><small id="npSub">pick a song</small></div><div id="sec" style="margin-left:auto"></div></div>
+    <canvas id="viz" width="900" height="70"></canvas>
+  </div>
+  <div class="knobs">
+    <label>INTENSITY <input type="range" id="inten" min="0" max="1" step="0.01" value="1"> <span id="intenV">1.00</span></label>
+    <label>VOLUME <input type="range" id="vol" min="0" max="1" step="0.01" value="0.8"></label>
+    <button class="ghost" id="dropBtn">DROP IN 3 s</button>
+    <button class="ghost" id="ascBtn">ASCEND</button>
+    <button class="ghost" id="stopBtn">STOP</button>
+  </div>
+</div>
+<script type="importmap">
+{ "imports": {
+    "./js/music.js": "./js/music.js?v=1788037039",
+    "./js/songs.js": "./js/songs.js?v=1788037039"
+} }
+</script>
+<script type="module">
+import { Music } from './js/music.js';
+import { SONGS, STATIONS } from './js/songs.js';
+
+const q = new URLSearchParams(location.search);
+const music = new Music(SONGS, STATIONS);
+window.MUSIC = music; window.SONGS = SONGS;
+let stationId = STATIONS[0].id;
+
+const fmt = s => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
+const songLen = s => s.sections.reduce((a, b) => a + b.bars, 0) * 4 * 60 / s.bpm;
+function coverEl(song, st) {
+  const d = document.createElement('div'); d.className = 'cover'; d.style.background = `linear-gradient(135deg, ${st.color}, #000 160%)`;
+  d.textContent = song.name.split(' ').map(w => w[0]).join('').slice(0, 3);
+  const img = new Image(); img.src = `assets/music/covers/${st.id}/${song.id}.png`;
+  img.onload = () => { d.textContent = ''; d.appendChild(img); };
+  return d;
+}
+function render() {
+  const stEl = document.getElementById('stations'); stEl.innerHTML = '';
+  for (const st of STATIONS) {
+    const b = document.createElement('div'); b.className = 'st' + (st.id === stationId ? ' sel' : ''); b.style.setProperty('--c', st.color);
+    b.innerHTML = `<b>${st.name}</b><span>${st.tag}</span>`; b.onclick = () => { stationId = st.id; render(); }; stEl.appendChild(b);
+  }
+  const st = STATIONS.find(s => s.id === stationId), list = document.getElementById('songs'); list.innerHTML = '';
+  for (const id of st.songs) {
+    const song = SONGS[id], el = document.createElement('div'); el.className = 'song' + (music.playing === id ? ' on' : ''); el.style.setProperty('--c', st.color);
+    el.appendChild(coverEl(song, st));
+    const body = document.createElement('div');
+    body.innerHTML = `<h3>${song.name}</h3><p>${song.artist} · ${song.bpm} bpm · ${song.key} · ${fmt(songLen(song))} · ${song.sections.map(s => s.name).join(' › ')}</p>`;
+    const row = document.createElement('div'); row.className = 'row';
+    const play = document.createElement('button'); play.textContent = music.playing === id ? 'RESTART' : 'PLAY'; play.onclick = () => { music.play(id); render(); };
+    const wav = document.createElement('button'); wav.className = 'ghost'; wav.textContent = 'WAV'; wav.onclick = () => exportWav(id, wav);
+    const chk = document.createElement('button'); chk.className = 'ghost'; chk.textContent = 'CHECK'; chk.onclick = () => check(id, chk);
+    row.append(play, wav, chk); body.appendChild(row); el.appendChild(body); list.appendChild(el);
+  }
+}
+music.onTrack = (song, st) => {
+  document.getElementById('npTitle').textContent = song.name;
+  document.getElementById('npSub').textContent = `${st.name} · ${song.artist} · ${song.bpm} bpm`;
+  const c = document.getElementById('npCover'); c.replaceWith(Object.assign(coverEl(song, st), { id: 'npCover' }));
+  render();
+};
+music.onEnd = () => { music.next(); };
+
+document.getElementById('inten').oninput = e => { music.setIntensity(+e.target.value); document.getElementById('intenV').textContent = (+e.target.value).toFixed(2); };
+document.getElementById('vol').oninput = e => music.setVolume(+e.target.value);
+document.getElementById('dropBtn').onclick = () => music.cueDrop(3);
+document.getElementById('ascBtn').onclick = () => music.trigger('ascend');
+document.getElementById('stopBtn').onclick = () => { music.stop(); document.getElementById('npTitle').textContent = 'STOPPED'; render(); };
+
+// visualiser + section readout
+const viz = document.getElementById('viz'), vctx = viz.getContext('2d');
+let last = performance.now();
+function frame(now) {
+  requestAnimationFrame(frame);
+  const dt = Math.min(0.1, (now - last) / 1000); last = now;
+  music.update(dt);
+  if (!music.ctx) return;
+  const an = music.analyser, W = viz.width, H = viz.height;
+  const td = new Uint8Array(an.fftSize); an.getByteTimeDomainData(td);
+  const fd = new Uint8Array(an.frequencyBinCount); an.getByteFrequencyData(fd);
+  vctx.clearRect(0, 0, W, H);
+  const st = STATIONS.find(s => s.id === (music.song ? music.song.station : stationId));
+  vctx.fillStyle = st.color + '99';
+  const bars = 96; for (let i = 0; i < bars; i++) { const bin = Math.floor(Math.pow(i / bars, 2) * fd.length * 0.6); const v = fd[bin] / 255; vctx.fillRect(i * (W / bars), H - v * H, W / bars - 2, v * H); }
+  vctx.strokeStyle = '#fff'; vctx.lineWidth = 1.2; vctx.beginPath();
+  for (let i = 0; i < td.length; i += 4) { const x = i / td.length * W, y = H / 2 + (td[i] - 128) / 128 * H * 0.45; i === 0 ? vctx.moveTo(x, y) : vctx.lineTo(x, y); }
+  vctx.stroke();
+  if (music.song) {
+    const sec = music.sectionAt(music.pos) || music.lay.secs[music.lay.secs.length - 1];
+    const bar = Math.floor((music.pos - sec.start) / 16) + 1;
+    document.getElementById('sec').innerHTML = `<b>${sec.name}</b> ${bar}/${sec.bars} · ${fmt((music.pos * music.stepDur))}`;
+  }
+}
+requestAnimationFrame(frame);
+
+async function exportWav(id, btn) {
+  btn.disabled = true; btn.textContent = 'RENDERING…';
+  try {
+    const { buf } = await Music.render(SONGS, STATIONS, id);
+    const a = document.createElement('a'); a.href = URL.createObjectURL(Music.wav(buf)); a.download = `${SONGS[id].name.replace(/\s+/g, '_')}.wav`; a.click();
+  } finally { btn.disabled = false; btn.textContent = 'WAV'; }
+}
+async function check(id, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = 'CHECKING…'; }
+  const t0 = performance.now();
+  const { buf, lay, song } = await Music.render(SONGS, STATIONS, id);
+  const rep = Music.analyze(buf, lay, song); rep.renderMs = Math.round(performance.now() - t0); rep.id = id; rep.bpm = song.bpm;
+  const el = document.getElementById('report'); el.style.display = 'block'; el.textContent = JSON.stringify(rep, null, 1);
+  if (btn) { btn.disabled = false; btn.textContent = 'CHECK'; }
+  return { rep, buf };
+}
+window.check = check;
+
+render();
+// headless: ?check=<id> renders + analyses, posts the WAV (mono 22 kHz) to the dev server, and leaves the numbers on window.__CHECK
+if (q.has('check')) {
+  (async () => {
+    try {
+      const { rep, buf } = await check(q.get('check'));
+      if (q.has('wav')) {
+        const sr = 22050, n = Math.floor(buf.length * sr / buf.sampleRate), off = new OfflineAudioContext(1, n, sr), s = off.createBufferSource(); s.buffer = buf; s.connect(off.destination); s.start();
+        const mono = await off.startRendering();
+        const r = await fetch(`/upload?name=${encodeURIComponent(q.get('check') + '.wav')}`, { method: 'POST', body: Music.wav(mono) });
+        rep.wav = r.ok ? await r.text() : 'upload failed ' + r.status;
+      }
+      window.__CHECK = rep;
+    } catch (e) { window.__CHECK = { error: String(e && e.stack || e) }; }
+  })();
+}
+</script>
+</body>
+</html>

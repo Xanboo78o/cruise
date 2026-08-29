@@ -19,6 +19,8 @@ import { LookPanel } from './lookpanel.js';
 import { HUD } from './hud.js';
 import { LapRecorder, GhostPlayer, PaceCar, Best } from './ghost.js';
 import { Audio } from './audio.js';
+import { Music } from './music.js';
+import { SONGS, STATIONS } from './songs.js';
 import { buildCity, cityProps, cityWalls } from './city.js';
 import { Props } from './props.js';
 import { FreeRoam } from './world/freeroam.js';
@@ -86,6 +88,16 @@ const hud = new HUD(document.getElementById('hud'));
 const stats = new URLSearchParams(location.search).has('stats') ? new Stats(renderer) : null;
 const glare = new Glare(renderer);
 const audio = new Audio();
+// the radio: three stations, synthesised live (music.js / songs.js). K flips the
+// station, J the song; the car's speed and slip drive the intensity layers,
+// and a race countdown restarts the song so the drop lands on GO.
+const music = new Music(SONGS, STATIONS);
+music.onTrack = (song, st) => showNowPlaying(song, st);
+music.onEnd = () => music.next();
+try { const st = localStorage.getItem('cruise.station'); if (st && STATIONS.some(x => x.id === st)) S.station = st; } catch {}
+let musicCued = false, npTimer = 0;
+const unlockMusic = () => { if (music.ctx && music.ctx.state === 'suspended') music.ctx.resume(); };
+addEventListener('pointerdown', unlockMusic); addEventListener('keydown', unlockMusic);
 
 const car = new Car(S.carId, PRESETS);
 let carMesh, ghostMesh, paceMesh, world, model, skyMesh, lights;
@@ -276,6 +288,7 @@ function setLook(name) {
 
 // ------------------------------------------------------------------- race
 function startRace() {
+  musicCued = false;
   if (bots) for (const b of bots.list) if (b.mesh) scene.remove(b.mesh);
   if (items) items.dispose();
   items = new Items(model, scene);
@@ -487,6 +500,7 @@ function frame() {
   let dt = Math.min(now - last, 0.1);
   last = now;
   screens.update(dt);
+  music.update(dt); musicTick();
   if (mapScreen && mapScreen.active) { mapScreen.update(dt); dof.render(scene, camera); input.endFrame(); return; }
   if (!S.running || (screens.active && !attract) || S.paused) {
     if (screens.current === 'car' || screens.current === 'track' || screens.current === 'who') screens.renderShowcase(renderer, camera.aspect);
@@ -798,6 +812,8 @@ function handleKeys() {
   if (input.padTapped('back')) { S.hudOn = !S.hudOn; document.body.classList.toggle('nohud', !S.hudOn); }
   if (input.padTapped('start')) openMenu();
   if (input.tapped('h')) { S.hudOn = !S.hudOn; document.body.classList.toggle('nohud', !S.hudOn); }
+  if (input.tapped('k') || input.padTapped('right')) { music.nextStation(); S.station = music.station; try { localStorage.setItem('cruise.station', S.station); } catch {} }
+  if (input.tapped('j') || input.padTapped('left')) music.next();
   if (input.tapped('v')) { S.vertical = !S.vertical; document.body.classList.toggle('vertical', S.vertical); resize(); }
   if (input.tapped('l')) { S.showLine = !S.showLine; world.setAids(S.showLine, S.showBoards); hud.toast('LINE ' + (S.showLine ? 'ON' : 'OFF'), 1000); }
   if (input.tapped('b') && !freeRoam) { S.showBoards = !S.showBoards; world.setAids(S.showLine, S.showBoards); hud.toast('BRAKE BOARDS ' + (S.showBoards ? 'ON' : 'OFF'), 1000); }
@@ -816,12 +832,47 @@ function handleKeys() {
   if (input.tapped('t')) { if (race) startRace(); else resetCar(true); }
   if (input.tapped('x')) { skid.clear(); smoke.clear(); hud.toast('MARKS CLEARED', 900); }
   if (input.tapped('n')) { S.skyIdx = (S.skyIdx + 1) % SKY_CYCLE.length; S.skyChosen = true; reloadSky(); }
-  if (input.tapped('m')) hud.toast('SOUND ' + (audio.toggle() ? 'ON' : 'OFF'), 900);
+  if (input.tapped('m')) { const on = audio.toggle(); if (music.enabled !== on) music.toggle(); hud.toast('SOUND ' + (on ? 'ON' : 'OFF'), 900); }
   for (let i = 0; i < LOOKS.length; i++) if (input.tapped(String(i + 1))) setLook(LOOKS[i]);   // 1 KART 2 RALLY 3 REAL 4 FLAT
   if (input.tapped('5')) { dof.enabled = !dof.enabled; hud.toast('DISTANCE BLUR ' + (dof.enabled ? 'ON' : 'OFF'), 1100); }
   if (input.tapped('u')) { S.unitMph = !S.unitMph; }
   if (input.tapped('escape') || input.tapped('tab')) { if (worldRace) endWorldRace(true); else openMenu(); }
   if (S.shorts && input.tapped('z')) S.auto = true;         // shorts stays on autopilot
+}
+
+// ------------------------------------------------------------------- radio
+function startMusic(kind) {
+  if (!music.ctx) music.start();
+  unlockMusic();
+  const want = S.station || (kind === 'title' ? 'rockers' : S.mode === 'cruise' ? 'jumvas' : 'groupb');
+  if (music.station !== want || !music.song) music.setStation(want);
+}
+// what the car is doing → how much of the song plays (layers + a lowpass at idle)
+function musicIntensity() {
+  if (attract || S.paused) return 0.6;
+  const spd = Math.min(1, car.speed / Math.max(20, (car.p.vMax || 60) * 0.8));
+  let i = 0.2 + spd * 0.55 + Math.min(1, Math.abs(car.driftAngle) / 25) * 0.2 + (car.boostT > 0 ? 0.2 : 0) + (car.airborne ? 0.15 : 0);
+  if (race && race.state === 'countdown') i = 0.4;
+  if (race && race.state === 'finished') i = 0.65;
+  return Math.min(1, i);
+}
+function musicTick() {
+  if (!music.song || !car) return;
+  music.setIntensity(musicIntensity());
+  if (race && race.state === 'countdown' && race.countdown <= 3.5 && race.countdown > 0.2 && !musicCued) { music.cueDrop(race.countdown); musicCued = true; }
+  if (car.airborne || car.boostT > 0 || (race && race.state === 'racing' && race.player && cfg.laps > 1 && race.player.lap >= cfg.laps - 1)) music.trigger('ascend');
+}
+function showNowPlaying(song, st) {
+  const el = document.getElementById('nowPlaying'); if (!el) return;
+  document.getElementById('npStation').textContent = st.name;
+  document.getElementById('npTitle').textContent = song.name;
+  document.getElementById('npArtist').textContent = song.artist || '';
+  const cov = document.getElementById('npCover');
+  cov.style.background = `linear-gradient(135deg, ${st.color}, #000 170%)`;
+  cov.textContent = song.name.split(' ').map(w => w[0]).join('').slice(0, 3);
+  const img = new Image(); img.src = `assets/music/covers/${st.id}/${song.id}.png`;
+  img.onload = () => { cov.textContent = ''; cov.replaceChildren(img); };
+  el.classList.add('show'); clearTimeout(npTimer); npTimer = setTimeout(() => el.classList.remove('show'), 5200);
 }
 
 function reloadSky() {
@@ -878,6 +929,7 @@ function startAttract() {
   document.body.classList.add('nohud');
   screens.show('title');
   audio.start();
+  startMusic('title');
 }
 
 function go() {
@@ -893,6 +945,7 @@ function go() {
   rig.mode = S.shorts ? 'tv' : 'chase';
   resize();
   audio.start();
+  startMusic('game');
 }
 
 function resize() {
@@ -964,5 +1017,5 @@ if (q.has('go') || q.has('shorts')) {
   startAttract();
 }
 frame();
-window.CRUISE = { S, car, screens, renderer, scene, camera, dof, get model() { return model; }, get race() { return race; }, get bots() { return bots; },
+window.CRUISE = { S, car, screens, renderer, scene, camera, dof, music, get model() { return model; }, get race() { return race; }, get bots() { return bots; },
   get world() { return world; }, get traffic() { return traffic; }, get smoke() { return smoke; }, get lights() { return lights; }, glare, editor, cityDoc, get cockpit() { return cockpit; }, get peds() { return peds; }, get carMesh() { return carMesh; } };   // debug handles (tools/shot.mjs breakdown)

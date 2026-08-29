@@ -317,3 +317,18 @@ body.maker #screens { display: none; }
 .ctSliders label { display: flex; align-items: center; gap: 8px; font-size: 10.5px; letter-spacing: 1px; color: #9aa0aa; }
 .ctSliders label b { color: #ffd98a; min-width: 52px; font-weight: 400; }
 .ctSliders input[type=range] { flex: 1; accent-color: #ffd98a; height: 14px; }
+
+/* ------------------------------------------------------------ the radio */
+#nowPlaying {
+  position: absolute; left: 16px; bottom: 252px; display: flex; gap: 10px; align-items: center;
+  background: var(--panel); backdrop-filter: blur(7px); border: 1px solid rgba(255,255,255,0.09); border-radius: 12px; padding: 8px 12px 8px 8px;
+  opacity: 0; transform: translateX(-14px); transition: opacity .25s, transform .25s; pointer-events: none;
+}
+#nowPlaying.show { opacity: 1; transform: translateX(0); }
+#nowPlaying .npc { width: 46px; height: 46px; border-radius: 8px; overflow: hidden; display: grid; place-items: center; font-weight: 900; font-size: 14px; color: #000; letter-spacing: 1px; flex: none; }
+#nowPlaying .npc img { width: 100%; height: 100%; object-fit: cover; display: block; }
+#nowPlaying .npt { display: flex; flex-direction: column; line-height: 1.15; }
+#nowPlaying i { font-style: normal; font-size: 9px; letter-spacing: 2px; color: var(--dim); }
+#nowPlaying b { font-size: 15px; letter-spacing: 2px; }
+#nowPlaying small { font-size: 10px; color: var(--dim); letter-spacing: 1px; }
+body.vertical #nowPlaying { bottom: 262px; }
