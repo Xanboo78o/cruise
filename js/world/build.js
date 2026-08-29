@@ -6,13 +6,15 @@
 
 import * as THREE from 'three';
 import { WORLD, ROAD_TYPES, DISTRICTS, COAST, CANYON } from './spec.js';
-import { terrainSurface, surface } from '../look/materials.js';   // LOOK: materials only
+import { terrainSurface, roadSurface } from '../look/materials.js';   // LOOK: materials only
 import { vnoise } from '../terrain.js';
 import { Districts } from './districts.js';
 import { EditLayer } from './edits.js';
 import { CityAtlas, Chunks, GlowLayer } from './chunks.js';
 import { footprint } from './pieces.js';
 import { Q } from '../quality.js';
+import { Water } from './water.js';
+import { Birds } from './birds.js';
 
 const sm = t => { t = Math.max(0, Math.min(1, t)); return t * t * (3 - 2 * t); };
 // the map maker's paint: index → ground colour (0 = none = the automatic rules)
@@ -61,6 +63,7 @@ export class WorldBuilder {
     this.farChunks = [];
     if (this.doc.autofill !== false || this.doc.forest) this.buildForest();   // the base forest: instanced, everywhere the land is free
     this.buildBeachAndPier();
+    this.birds = new Birds(this.group, T, Q);                   // flocks over the hills, one draw call
     // the old auto-filled districts, until the city tool has replaced them
     this.districts = this.doc.autofill !== false ? new Districts(T, this.group, this.sky === 'night', this.city, this.glow) : { walls: [] };
     this.city.finish({ shadows: Q.shadows });
@@ -81,6 +84,14 @@ export class WorldBuilder {
     for (const l of this.lights) l.visible = n;
   }
   get walls() { return this._wallsFor === this.edits.walls ? this._walls : (this._wallsFor = this.edits.walls, this._walls = [...this.districts.walls, ...this.edits.walls]); }
+  // the nearest chimneys to (px, pz), re-picked every half second; main puffs smoke out of them
+  nearChimneys(px, pz, dt) {
+    this.chimT = (this.chimT || 0) - dt; if (this.chimT > 0 && this._chim) return this._chim;
+    this.chimT = 0.5;
+    const all = this.edits.chimneys, best = [];
+    for (const c of all) { const d = (c[0] - px) ** 2 + (c[2] - pz) ** 2; if (d > 200 * 200) continue; if (best.length < 14 || d < best[13].d) { best.push({ d, c }); best.sort((a, b) => a.d - b.d); if (best.length > 14) best.pop(); } }
+    return (this._chim = best.map(b => b.c));
+  }
 
   // the real lights: the four nearest lamp heads to (px, pz)
   updateLights(px, pz, dt) {
@@ -99,10 +110,10 @@ export class WorldBuilder {
     const T = this.T, cell = T.constructor.CELL;
     const w = Math.ceil((WORLD.maxX - WORLD.minX) / cell), h = Math.ceil((WORLD.maxZ - WORLD.minZ) / cell);
     const pos = new Float32Array((w + 1) * (h + 1) * 3), col = new Float32Array((w + 1) * (h + 1) * 3);
-    const cGrass = new THREE.Color(0x4e7a3f), cDark = new THREE.Color(0x35592c), cRock = new THREE.Color(0x8a7a66), cSnow = new THREE.Color(0xe8e6e0);
+    const cGrass = new THREE.Color(0x5c9048), cDark = new THREE.Color(0x3f6a34), cRock = new THREE.Color(0x8a7a66), cSnow = new THREE.Color(0xe8e6e0);
     const cSand = new THREE.Color(0xd9c78f), cRed = new THREE.Color(0xb5613f), cFloor = new THREE.Color(0x9a7a5a), cCity = new THREE.Color(0x6c6f74);
     const tmp = new THREE.Color();
-    const cLush = new THREE.Color(0x3f7a3a), cDirt = new THREE.Color(0x7a6244), cGrey = new THREE.Color(0x7d7468);
+    const cLush = new THREE.Color(0x4a9044), cDirt = new THREE.Color(0x8a7050), cGrey = new THREE.Color(0x857c70), cField = new THREE.Color(0xa8a854);
     // paint wins; otherwise the land colours itself: grass with a slow drift between
     // types, dirt on the slopes, rock where it's steep, red rock where it's been dug
     // deep, snow up high, sand at the water
@@ -111,6 +122,9 @@ export class WorldBuilder {
       const pt = T.paintAt(x, z);
       if (pt && PAINT[pt]) return out.copy(PAINT[pt]).lerp(cDark, n * 0.22);
       let c = out.copy(cGrass).lerp(cLush, n2).lerp(cDark, n * 0.35);
+      // fields: big patches of drier, yellower grass — art of rally's patchwork — with a hard-ish edge
+      const n3 = vnoise(x * 0.0045 + 9.2, z * 0.0045 + 5.7);
+      if (n3 > 0.6) c.lerp(cField, sm((n3 - 0.6) / 0.08) * 0.85);
       if (!T.flat) {
         const carve = T.canyonCarve(x, z);
         if (carve < -1) c = out.copy(carve < -T.constructor.depth ? cFloor : cRed).lerp(cFloor, sm((-carve - 40) / 45)).lerp(cRed, n * 0.3);
@@ -215,11 +229,8 @@ export class WorldBuilder {
   }
 
   buildWater() {
-    const sea = new THREE.Mesh(new THREE.PlaneGeometry(14000, 14000),
-      new THREE.MeshLambertMaterial({ color: this.sky === 'night' ? 0x0b1626 : 0x2b6b8a, transparent: true, opacity: 0.92 }));
-    sea.rotation.x = -Math.PI / 2; sea.position.set(0, 0.0, -1400);
-    this.group.add(sea);
-    this.sea = sea;
+    this.water = new Water(this.T, this.group, Q);              // shore-aware shader plane (water.js)
+    this.sea = this.water.mesh;
   }
 
   // ------------------------------------------------------------------ roads
@@ -228,11 +239,16 @@ export class WorldBuilder {
   // pillars wherever the deck is well above the land
   buildRoads() {
     const T = this.T, SH = T.constructor.SH;
-    const paved = new THREE.Color(0x4a4f58), gravel = new THREE.Color(0x9a8664), sand = new THREE.Color(0xe0cf98), pier = new THREE.Color(0x8a6e4e);
-    const concrete = new THREE.Color(0x8d8a82), pillarC = new THREE.Color(0x77746e), kerbC = new THREE.Color(0xb3b0a8);
-    const pos = [], col = [], uv = [], idx = [];
-    const V = (x, y, z, c) => { pos.push(x, y, z); col.push(c.r, c.g, c.b); uv.push(x / 16, z / 16); return pos.length / 3 - 1; };
-    const quad = (a, b, c, d) => idx.push(a, b, c, a, c, d);                 // a,b,c,d counter-clockwise seen from the outside
+    // vertex colours are TONE only now — the road material (look/materials.js roadSurface) supplies the surface
+    // from aRoad = (lat, along, half width, kind): 0 paved 1 gravel 2 sand 3 pier 4 kerb 5 concrete 6 ground
+    const paved = new THREE.Color(0xc8ccd2), gravel = new THREE.Color(0xa8967a), sand = new THREE.Color(0xe0cf98), pier = new THREE.Color(0xa08668);
+    const concrete = new THREE.Color(0xb0aca4), pillarC = new THREE.Color(0x9c9890), kerbC = new THREE.Color(0xd8d4cc);
+    const KIND = { road: 0, gravel: 1, sand: 2 };
+    const pos = [], col = [], uv = [], idx = [], road = [];
+    const V = (x, y, z, c, lat = 0, along = 0, hw = 0, kind = 6) => { pos.push(x, y, z); col.push(c.r, c.g, c.b); uv.push(x / 16, z / 16); road.push(lat, along, hw, kind); return pos.length / 3 - 1; };
+    // a,b,c,d are given CLOCKWISE seen from the outside (the deck from above, a skirt from the road's side),
+    // so the triangles are emitted reversed: normals point up/out and the mesh renders FrontSide
+    const quad = (a, b, c, d) => idx.push(a, c, b, a, d, c);
     // the shoulder: the road's own ground out to SH m (the cut wall, the embankment —
     // exactly what the wheels get from T.height), then a cover band to 36 m that lies
     // just under the terrain mesh. The mesh has no triangles within SH of an at-grade
@@ -244,6 +260,7 @@ export class WorldBuilder {
       const n = Math.max(2, Math.ceil(r.L / step) + 1);
       const c = r.T.surf === 'gravel' ? gravel : r.T.surf === 'sand' ? sand : r.type === 'pier' ? pier : paved;
       const kerbed = r.T.surf === 'road' && r.type !== 'pier', skirted = r.type !== 'sand', shouldered = r.type !== 'sand' && r.type !== 'pier';
+      const K = r.type === 'pier' ? 3 : (KIND[r.T.surf] ?? 0), lineHw = r.T.surf === 'road' && r.type !== 'pier' ? hw : 0;   // markings on paved decks only
       let prev = null, sincePillar = 0;
       for (let i = 0; i < n; i++) {
         const s = (i / (n - 1)) * r.L;
@@ -254,16 +271,16 @@ export class WorldBuilder {
         const L = [p.x + nx * hw, p.z + nz * hw], R = [p.x - nx * hw, p.z - nz * hw];
         const skirtY = bridge ? y - 1.6 : y - 1.2;                                                   // a 1.6 m slab edge on a bridge; buried in the shoulder otherwise
         const cur = {
-          dl: V(L[0], y, L[1], cs), dr: V(R[0], y, R[1], cs),                                       // deck edges
-          sl: V(L[0], skirtY, L[1], concrete), sr: V(R[0], skirtY, R[1], concrete),
-          kl: kerbed ? [V(L[0], y + 0.3, L[1], kerbC), V(L[0] - nx * 0.55, y + 0.3, L[1] - nz * 0.55, kerbC), V(L[0] - nx * 0.55, y, L[1] - nz * 0.55, kerbC)] : null,
-          kr: kerbed ? [V(R[0], y + 0.3, R[1], kerbC), V(R[0] + nx * 0.55, y + 0.3, R[1] + nz * 0.55, kerbC), V(R[0] + nx * 0.55, y, R[1] + nz * 0.55, kerbC)] : null,
+          dl: V(L[0], y, L[1], cs, hw, s, lineHw, K), dr: V(R[0], y, R[1], cs, -hw, s, lineHw, K),                                       // deck edges
+          sl: V(L[0], skirtY, L[1], concrete, 0, 0, 0, 5), sr: V(R[0], skirtY, R[1], concrete, 0, 0, 0, 5),
+          kl: kerbed ? [V(L[0], y + 0.3, L[1], kerbC, 0, 0, 0, 4), V(L[0] - nx * 0.55, y + 0.3, L[1] - nz * 0.55, kerbC, 0, 0, 0, 4), V(L[0] - nx * 0.55, y, L[1] - nz * 0.55, kerbC, 0, 0, 0, 4)] : null,
+          kr: kerbed ? [V(R[0], y + 0.3, R[1], kerbC, 0, 0, 0, 4), V(R[0] + nx * 0.55, y + 0.3, R[1] + nz * 0.55, kerbC, 0, 0, 0, 4), V(R[0] + nx * 0.55, y, R[1] + nz * 0.55, kerbC, 0, 0, 0, 4)] : null,
           shl: null, shr: null,
         };
         if (shouldered) {
           cur.shl = []; cur.shr = [];
           for (const o of OUT) {
-            const under = (o > SH || bridge) ? 0.05 : 0;                                            // the cover band (and everything on a bridge) sits just under the mesh
+            const under = bridge ? 0.05 : o > SH ? 0.4 : 0;                                          // the cover band sits well under the mesh (0.05 z-fought on steep ground: a torn look)
             const lx = p.x + nx * (hw + o), lz = p.z + nz * (hw + o), rx = p.x - nx * (hw + o), rz = p.z - nz * (hw + o);
             const ly = T.height(lx, lz) - under, ryy = T.height(rx, rz) - under;
             cur.shl.push(V(lx, ly, lz, this.terrainColor(lx, lz, ly, gc)));
@@ -289,9 +306,17 @@ export class WorldBuilder {
           const cx = p.x, cz = p.z, hwid = Math.min(3, hw * 0.4), bottom = T.meshY(cx, cz) - 1.5;
           const a = [cx + nx * hwid + p.tx * hwid, cz + nz * hwid + p.tz * hwid], b = [cx - nx * hwid + p.tx * hwid, cz - nz * hwid + p.tz * hwid];
           const d = [cx - nx * hwid - p.tx * hwid, cz - nz * hwid - p.tz * hwid], e = [cx + nx * hwid - p.tx * hwid, cz + nz * hwid - p.tz * hwid];
-          const corners = [a, b, d, e], top = [], bot = [];
-          for (const [qx, qz] of corners) { top.push(V(qx, ry - 0.3, qz, pillarC)); bot.push(V(qx, bottom, qz, pillarC)); }
-          for (let k = 0; k < 4; k++) { const k2 = (k + 1) % 4; quad(bot[k], bot[k2], top[k2], top[k]); quad(top[k], top[k2], bot[k2], bot[k]); }
+          // each face gets its own four vertices, both windings: shared vertices with opposite windings
+          // averaged to a zero normal and the piers rendered black
+          const corners = [a, b, d, e];
+          for (let k = 0; k < 4; k++) {
+            const [x1, z1] = corners[k], [x2, z2] = corners[(k + 1) % 4];
+            for (const flip of [false, true]) {
+              const b1 = V(x1, bottom, z1, pillarC, 0, 0, 0, 5), b2 = V(x2, bottom, z2, pillarC, 0, 0, 0, 5);
+              const t2 = V(x2, ry - 0.3, z2, pillarC, 0, 0, 0, 5), t1 = V(x1, ry - 0.3, z1, pillarC, 0, 0, 0, 5);
+              if (flip) quad(t1, t2, b2, b1); else quad(b1, b2, t2, t1);
+            }
+          }
         }
         prev = cur;
       }
@@ -299,12 +324,12 @@ export class WorldBuilder {
       // cover (just under the deck, the shoulder, then the mesh) closes the hole at a dead end
       if (shouldered) for (const end of [0, 1]) {
         const p = T.pointAt(r, end ? r.L : 0), cx = p.x, cz = p.z, base2 = pos.length / 3, spokes = 16, rings = [hw, hw + 16, hw + 36];
-        const yc = T.height(cx, cz) - 0.05; pos.push(cx, yc, cz); col.push(gc.r, gc.g, gc.b); uv.push(cx / 16, cz / 16);
+        const yc = T.height(cx, cz) - 0.05; pos.push(cx, yc, cz); col.push(gc.r, gc.g, gc.b); uv.push(cx / 16, cz / 16); road.push(0, 0, 0, 6);
         for (let ri = 0; ri < rings.length; ri++) for (let k = 0; k < spokes; k++) {
           const a = k / spokes * Math.PI * 2, x = cx + Math.cos(a) * rings[ri], z = cz + Math.sin(a) * rings[ri], y = T.height(x, z) - 0.05;
-          this.terrainColor(x, z, y, gc); pos.push(x, y, z); col.push(gc.r, gc.g, gc.b); uv.push(x / 16, z / 16);
+          this.terrainColor(x, z, y, gc); pos.push(x, y, z); col.push(gc.r, gc.g, gc.b); uv.push(x / 16, z / 16); road.push(0, 0, 0, 6);
         }
-        for (let k = 0; k < spokes; k++) { const k2 = (k + 1) % spokes; idx.push(base2, base2 + 1 + k, base2 + 1 + k2); }
+        for (let k = 0; k < spokes; k++) { const k2 = (k + 1) % spokes; idx.push(base2, base2 + 1 + k2, base2 + 1 + k); }
         for (let ri = 0; ri < rings.length - 1; ri++) for (let k = 0; k < spokes; k++) { const k2 = (k + 1) % spokes, i0 = base2 + 1 + ri * spokes, i1 = i0 + spokes; quad(i0 + k, i0 + k2, i1 + k2, i1 + k); }
       }
       // junction plates: a disc at every polyline vertex so crossings don't show seams
@@ -313,12 +338,12 @@ export class WorldBuilder {
         const y = T.height(x, z) + 0.09;
         const base2 = pos.length / 3, segs = 14;
         let sh = shadeAt(x, z);
-        pos.push(x, y, z); col.push(c.r * sh, c.g * sh, c.b * sh); uv.push(x / 16, z / 16);
+        pos.push(x, y, z); col.push(c.r * sh, c.g * sh, c.b * sh); uv.push(x / 16, z / 16); road.push(0, 0, 0, K);   // a plate: the deck's surface, no markings
         for (let k = 0; k <= segs; k++) {
           const a = k / segs * Math.PI * 2, px = x + Math.cos(a) * hw, pz = z + Math.sin(a) * hw;
           pos.push(px, T.height(x + Math.cos(a) * hw * 0.9, z + Math.sin(a) * hw * 0.9) + 0.09, pz);
-          sh = shadeAt(px, pz); col.push(c.r * sh, c.g * sh, c.b * sh); uv.push(px / 16, pz / 16);
-          if (k < segs) idx.push(base2, base2 + 1 + k, base2 + 2 + k);
+          sh = shadeAt(px, pz); col.push(c.r * sh, c.g * sh, c.b * sh); uv.push(px / 16, pz / 16); road.push(0, 0, 0, K);
+          if (k < segs) idx.push(base2, base2 + 2 + k, base2 + 1 + k);
         }
       }
     }
@@ -326,11 +351,10 @@ export class WorldBuilder {
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
     g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    g.setAttribute('aRoad', new THREE.Float32BufferAttribute(road, 4));
     g.setIndex(idx); g.computeVertexNormals();
-    // the same ground grain as the terrain, so a shoulder is indistinguishable from the land it meets
-    const mesh = new THREE.Mesh(g, Q.pbr
-      ? surface('road', { vertexColors: true, tint: 0xffffff, side: THREE.DoubleSide })
-      : new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide, map: groundTexture() }));
+    // one material reads aRoad and draws asphalt + markings, kerb, concrete, or the terrain's own ground
+    const mesh = new THREE.Mesh(g, roadSurface({ pbr: Q.pbr, noise: groundTexture() }));
     mesh.receiveShadow = true;
     this.group.add(mesh);
     this.roadMesh = mesh;
@@ -357,17 +381,39 @@ export class WorldBuilder {
       lotAt = (x, z) => { const i = Math.floor((x - WORLD.minX) / LG), j = Math.floor((z - WORLD.minZ) / LG); return i >= 0 && j >= 0 && i < LW && j < LH && lots[j * LW + i] === 1; };
     }
     const ring = []; for (let k = 0; k < 8; k++) ring.push([Math.cos(k * Math.PI / 4) * 220, Math.sin(k * Math.PI / 4) * 220]);
+    // a tree is ONE merged geometry per kind (trunk + crown parts), vertex-coloured,
+    // the crown shaded darker toward its foot so it reads as a mass with an underside
+    const cyl = (r0, r1, h) => new THREE.CylinderGeometry(r0, r1, h, 5), cone = (r, h) => new THREE.ConeGeometry(r, h, 7), ico = r => new THREE.IcosahedronGeometry(r, 0);
     const kinds = [
-      { trunk: new THREE.CylinderGeometry(0.28, 0.42, 5.5, 5), leaf: new THREE.ConeGeometry(3.2, 9, 6), leafY: 9.5, tc: 0x5c4632, lc: 0x2f5a35 },   // pine
-      { trunk: new THREE.CylinderGeometry(0.3, 0.45, 4, 5), leaf: new THREE.IcosahedronGeometry(3.6, 0), leafY: 6.5, tc: 0x6a5238, lc: 0x4f8a3a },   // broadleaf
-      { trunk: new THREE.CylinderGeometry(0.22, 0.32, 7, 5), leaf: new THREE.ConeGeometry(3.4, 2.2, 6), leafY: 8.2, tc: 0x8a7355, lc: 0x4f8a4a },    // palm-ish
-      { trunk: new THREE.CylinderGeometry(0.3, 0.45, 4.5, 5), leaf: new THREE.IcosahedronGeometry(3.2, 0), leafY: 6.4, tc: 0x6a5238, lc: 0xc9742f },  // autumn
-      { trunk: new THREE.CylinderGeometry(0.3, 0.46, 7, 5), leaf: new THREE.ConeGeometry(3.4, 11, 6), leafY: 11.5, tc: 0x4a3a2a, lc: 0x24452a },   // dark pine, up high
+      { lc: 0x3f7a3f, leafY: 9.5, parts: [[cyl(0.3, 0.48, 8), 2.5, 0x5c4632], [cone(3.6, 5.5), 4.6, 0x2f6236], [cone(2.9, 5), 7.6, 0x3a7a40], [cone(2.0, 4.6), 10.4, 0x4a8f48]] },   // pine: three tiers
+      { lc: 0x5a9a44, leafY: 6.5, parts: [[cyl(0.32, 0.5, 7), 2, 0x6a5238], [ico(3.6), 6.4, 0x4f8a3a], [ico(2.6), 8.3, 0x62a04a], [ico(2.2), 6.9, 0x56943f, 2.3, 0, 0.8], [ico(2.0), 6.6, 0x4a8438, -2.2, 0, -0.6]] },   // broadleaf: a cluster
+      { lc: 0x58a052, leafY: 8.2, parts: [[cyl(0.22, 0.34, 9.5), 3.3, 0x8a7355], [cone(3.8, 1.6), 8.0, 0x4f8a4a], [cone(2.6, 2.4), 8.3, 0x62a052], [ico(0.8), 8.4, 0x8a7a40]] },   // palm-ish: a flat crown
+      { lc: 0xd08038, leafY: 6.4, parts: [[cyl(0.32, 0.5, 7), 2, 0x6a5238], [ico(3.3), 6.2, 0xc9742f], [ico(2.4), 8.0, 0xe09a3c], [ico(2.1), 6.6, 0xb8602a, 2.2, 0, 0.6], [ico(1.9), 6.4, 0xd48a34, -2.1, 0, -0.9]] },   // autumn
+      { lc: 0x2c5a34, leafY: 11.5, parts: [[cyl(0.3, 0.5, 9.5), 3.2, 0x4a3a2a], [cone(3.6, 6.5), 5.6, 0x21422a], [cone(2.9, 6), 9.0, 0x2a5232], [cone(1.9, 5.5), 12.2, 0x34633a]] },   // dark pine, up high
     ];
-    // one geometry per kind: trunk + crown, vertex-coloured, so a tree is one draw
-    const treeGeo = kinds.map(k => mergeColoured([[k.trunk, 2.2, k.tc], [k.leaf, k.leafY, k.lc]]));
+    const treeGeo = kinds.map(k => mergeColoured(k.parts.map(([g, y, c, x = 0, _z = 0, z = 0]) => [g, y, c, x, 0, z, 1]), true));
     const farCone = new THREE.ConeGeometry(3.4, 9, 5);
     const mat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
+    // the wind: every instanced tree leans and sways from about 1.5 m up, phased by where it
+    // stands so a hillside moves as a crowd, not a chorus line. Vertex-only — the tree's
+    // own geometry never changes, so it costs nothing on the CPU.
+    this.wind = { value: 0 };
+    mat.onBeforeCompile = sh => {
+      sh.uniforms.uTime = this.wind;
+      sh.vertexShader = sh.vertexShader
+        .replace('#include <common>', '#include <common>\nuniform float uTime;')
+        .replace('#include <begin_vertex>', `#include <begin_vertex>
+          #ifdef USE_INSTANCING
+            vec3 wp0 = (instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+          #else
+            vec3 wp0 = vec3(0.0);
+          #endif
+          float hgt = max(0.0, position.y - 1.5);
+          float ph = uTime * 1.1 + wp0.x * 0.13 + wp0.z * 0.17;
+          float sw = (sin(ph) + 0.5 * sin(ph * 2.3 + 1.7)) * 0.02 * hgt;
+          transformed.x += sw; transformed.z += sw * 0.6;`);
+    };
+    mat.customProgramCacheKey = () => 'forestwind';
     const dummy = new THREE.Object3D(), tint = new THREE.Color();
     const keep = 0.28 + (1 - Q.treeDensity) * 0.72;      // hash threshold: LOW thins the forest
     let total = 0;
@@ -466,6 +512,8 @@ export class WorldBuilder {
   // draw only what's within reach: near trees, far crowns, near/far city cells
   update(camX, camZ) {
     const nr = Q.forestReach, fr = Q.forestFar;
+    if (this.wind) this.wind.value = performance.now() / 1000;
+    if (this.birds) this.birds.update(camX, camZ);
     for (const g of this.chunks) g.near.visible = Math.hypot(g.cx - camX, g.cz - camZ) < nr;
     for (const g of this.farChunks) { const d = Math.hypot(g.cx - camX, g.cz - camZ); g.far.visible = d >= nr - 200 && d < fr; }
     this.city.update(camX, camZ, Q.chunkNear, Q.chunkFar);
@@ -482,19 +530,23 @@ export class WorldBuilder {
 }
 
 // merge [geometry, yOffset, colour, x?, y?, z?, scale?] parts into one
-// non-indexed, vertex-coloured geometry
-function mergeColoured(parts) {
+// non-indexed, vertex-coloured geometry. shade: darken each part toward its own
+// foot (0.7 → 1.08 over its height) — a crown with an underside, for free
+function mergeColoured(parts, shade = false) {
   const pos = [], nrm = [], col = [];
   const c = new THREE.Color(), P = new THREE.Vector3(), N = new THREE.Vector3();
   for (const [g0, yOff, colour, x = 0, y = 0, z = 0, s = 1] of parts) {
     const g = g0.index ? g0.toNonIndexed() : g0;
     const p = g.attributes.position, n = g.attributes.normal;
     c.set(colour);
+    let y0 = 1e9, y1 = -1e9;
+    if (shade) for (let i = 0; i < p.count; i++) { const py = p.getY(i); y0 = Math.min(y0, py); y1 = Math.max(y1, py); }
     for (let i = 0; i < p.count; i++) {
       P.fromBufferAttribute(p, i);
       pos.push(x + P.x * s, y + (P.y + yOff) * s, z + P.z * s);
       N.fromBufferAttribute(n, i); nrm.push(N.x, N.y, N.z);
-      col.push(c.r, c.g, c.b);
+      const k = shade && y1 > y0 ? 0.7 + 0.38 * (P.y - y0) / (y1 - y0) : 1;
+      col.push(c.r * k, c.g * k, c.b * k);
     }
     if (g !== g0) g.dispose();
   }

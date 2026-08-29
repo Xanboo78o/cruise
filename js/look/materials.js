@@ -37,8 +37,11 @@ export function setFlat(on) {
   if (on === flat) return;
   flat = on;
   for (const m of ALL) applyFlat_(m, on);
+  for (const m of ROADS) applyRoadFlat_(m, on);
 }
 function applyFlat_(m, on) {
+  // the terrain facets in flat mode: art of rally's ground is low-poly on purpose
+  if (m.userData.terrain) { m.flatShading = on; m.needsUpdate = true; }
   if (on) {
     m.userData.maps = { map: m.map, normalMap: m.normalMap, roughnessMap: m.roughnessMap };
     m.map = m.normalMap = m.roughnessMap = null;
@@ -55,6 +58,11 @@ function applyFlat_(m, on) {
   m.needsUpdate = true;
 }
 export const isFlat = () => flat;
+// the road keeps its own shader in flat mode (the markings live there): it just stops reading textures
+const ROADS = [];
+function applyRoadFlat_(m, on) { m.userData.tri.uFlat.value = on ? 1 : 0; }
+let lines = 1;
+export function setLines(k) { lines = k; for (const m of ROADS) m.userData.tri.uLines.value = k; }
 function track(m) {
   m.userData.pbr = { r: m.roughness, m: m.metalness };
   m.userData.obc = m.onBeforeCompile;
@@ -63,10 +71,30 @@ function track(m) {
   return m;
 }
 
+// PAINTED, not scanned: the KART look wants clean surfaces. A scan is photo
+// noise at every frequency; Mario Kart's textures are soft, saturated, and only
+// carry the big shapes. So when stylize is on, every colour map is downsampled,
+// blurred, saturated a touch; a normal map is halved toward flat. Decided once
+// at load (the look at start-up) — the cache key carries it.
+let stylize = false;
+export function setStylize(on) { stylize = !!on; }
+function paint(img, kind) {
+  const N = kind === 'color' ? 256 : 128;
+  const c = document.createElement('canvas'); c.width = c.height = N;
+  const g = c.getContext('2d'); g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
+  const half = document.createElement('canvas'); half.width = half.height = N / 2;
+  const gh = half.getContext('2d'); gh.imageSmoothingEnabled = true; gh.imageSmoothingQuality = 'high';
+  gh.drawImage(img, 0, 0, N / 2, N / 2);                     // down to a quarter of the pixels: the noise goes
+  if (kind === 'color') g.filter = 'saturate(1.22) contrast(0.9) brightness(1.06)';
+  g.drawImage(half, 0, 0, N, N);                              // back up, soft
+  g.filter = 'none';
+  if (kind === 'normal') { g.globalAlpha = 0.55; g.fillStyle = 'rgb(128,128,255)'; g.fillRect(0, 0, N, N); g.globalAlpha = 1; }
+  return c;
+}
 function tex(name, kind, srgb) {
-  const key = name + '/' + kind;
+  const key = name + '/' + kind + (stylize ? '/paint' : '');
   if (cache.has(key)) return cache.get(key);
-  const t = loader.load(DIR + name + '/' + kind + '.jpg');
+  const t = loader.load(DIR + name + '/' + kind + '.jpg', stylize && kind !== 'rough' ? tt => { tt.image = paint(tt.image, kind); tt.needsUpdate = true; } : undefined);
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
   t.anisotropy = anisotropy;
   // triplanar samples the map itself, so the colour-space conversion is done in
@@ -222,6 +250,7 @@ export function terrainSurface(flatName, steepName, extra = {}) {
     roughness: 1.0,
     metalness: 0.0,
     vertexColors: extra.vertexColors !== false,
+    flatShading: flat,
     map: tex(f.tex, 'color', false),
     roughnessMap: tex(f.tex, 'rough', false),
     // no normalMap on purpose: the terrain is the whole screen, and a normal
@@ -264,7 +293,104 @@ export function terrainSurface(flatName, steepName, extra = {}) {
       `);
   };
   m.customProgramCacheKey = () => 'terr' + flatName + steepName + (flat ? 'f' : '');
+  m.userData.terrain = true;
   return track(m);
+}
+
+// ------------------------------------------------------------------ the road
+// One material for the whole road mesh (build.js): deck, kerbs, skirts, piers,
+// shoulders. Each vertex carries aRoad = (lat m from the centreline, metres
+// along, half width, kind) and the shader decides what it is looking at:
+//   kind 0 paved  1 gravel  2 sand  3 pier planks  4 kerb  5 concrete  6 ground
+// Paved decks with a half width get their markings HERE, in the fragment, from
+// lat/along — no extra geometry, nothing to z-fight, crisp at any distance
+// (fwidth anti-aliases the edges). A half width of 0 means "no lines" (junction
+// plates). The shoulder (kind 6) draws the SAME ground as the terrain mesh, so
+// the cut and the embankment beside a road match the land they meet instead of
+// wearing asphalt.
+const ROAD_PARS = /* glsl */`
+varying vec4 vRoad;
+uniform sampler2D uAsphaltMap, uAsphaltRough, uGround, uCliff, uGravel, uSand, uPlank, uConcrete;
+uniform float uTileGround, uTileCliff, uTileGravel, uTileSand, uTilePlank, uTileConcrete;
+uniform vec3 uAsphalt, uLine, uLineY, uKerb, uConcreteTint;
+uniform float uLines, uFlat;
+uniform vec4 uFlatGain;
+float band(float u, float a, float b, float w) { return smoothstep(a - w, a + w, u) * (1.0 - smoothstep(b - w, b + w, u)); }
+`;
+export function roadSurface(opts = {}) {
+  const pbr = opts.pbr !== false, noise = opts.noise || null;
+  const M = pbr ? THREE.MeshStandardMaterial : THREE.MeshLambertMaterial;
+  // every surface is a plain uniform sampler (no `map` slot: nothing here uses three's uv/map plumbing).
+  // GAINS are linear multipliers applied AFTER the sRGB decode — a Color would be gamma'd twice
+  // and the asphalt went black for an hour that way
+  const m = new M({ vertexColors: true, side: THREE.FrontSide, ...(pbr ? { roughness: 0.92, metalness: 0 } : {}) });
+  const G = (r, g, b) => new THREE.Vector3(r, g, b);
+  const gain = pbr ? { asphalt: G(1.55, 1.6, 1.8), kerb: G(1.5, 1.5, 1.55), concrete: G(1.7, 1.7, 1.7) }
+                   : { asphalt: G(0.17, 0.175, 0.2), kerb: G(0.6, 0.6, 0.62), concrete: G(0.7, 0.7, 0.7) };
+  const g = n => pbr ? tex(SURFACES[n].tex, 'color', false) : noise;
+  const u = {
+    uAsphaltMap: { value: g('road') }, uAsphaltRough: { value: pbr ? tex('asphalt', 'rough', false) : noise },
+    uGround: { value: g('dirt') }, uCliff: { value: g('cliff') }, uGravel: { value: g('gravel') }, uSand: { value: g('sand') }, uPlank: { value: g('timber') }, uConcrete: { value: g('concrete') },
+    uTileGround: { value: 1 / SURFACES.dirt.tile }, uTileCliff: { value: 1 / SURFACES.cliff.tile }, uTileGravel: { value: 1 / SURFACES.gravel.tile }, uTileSand: { value: 1 / SURFACES.sand.tile },
+    uTilePlank: { value: 1 / SURFACES.timber.tile }, uTileConcrete: { value: 1 / SURFACES.concrete.tile }, uTile: { value: 1 / SURFACES.road.tile },
+    uAsphalt: { value: gain.asphalt }, uLine: { value: new THREE.Color(0xf2efe6) }, uLineY: { value: new THREE.Color(0xf0c24a) },
+    uKerb: { value: gain.kerb }, uConcreteTint: { value: gain.concrete }, uLines: { value: lines },
+    uNrmAmt: { value: 0.5 }, uFlat: { value: flat ? 1 : 0 },
+    // flat mode: no texture, the vertex tone × a per-kind level (art of rally tarmac is a mid grey)
+    uFlatGain: { value: new THREE.Vector4(0.22, 1.0, 1.0, 0.7) },    // asphalt, gravel/sand/planks, ground, kerb+concrete
+  };
+  m.userData.tri = u;
+  m.onBeforeCompile = sh => {
+    Object.assign(sh.uniforms, u);
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute vec4 aRoad;\nvarying vec4 vRoad;\nvarying vec3 vWPos;\nvarying vec3 vWNrm;')
+      .replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\nvRoad = aRoad;\nvWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;\nvWNrm = normalize(mat3(modelMatrix) * objectNormal);');
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vWPos;\nvarying vec3 vWNrm;\nuniform float uTile;\nuniform float uNrmAmt;\nvec2 sideUv(vec3 p, vec3 n) { return abs(n.x) > abs(n.z) ? p.zy : p.xy; }\n' + ROAD_PARS)
+      .replace('#include <map_fragment>', `
+        int kind = int(vRoad.w + 0.5);
+        vec2 uvP = vWPos.xz;
+        vec3 base, gainK = vec3(1.0);
+        if (uFlat > 0.5) { base = vec3(1.0); gainK = vec3(kind == 0 ? uFlatGain.x : (kind == 4 || kind == 5) ? uFlatGain.w : kind == 6 ? uFlatGain.z : uFlatGain.y); }
+        else if (kind == 0) { base = texture2D(uAsphaltMap, uvP * uTile).rgb; gainK = uAsphalt; }
+        else if (kind == 1) base = texture2D(uGravel, uvP * uTileGravel).rgb;
+        else if (kind == 2) base = texture2D(uSand, uvP * uTileSand).rgb;
+        else if (kind == 3) base = texture2D(uPlank, uvP * uTilePlank).rgb;
+        else if (kind == 4) { base = texture2D(uConcrete, uvP * uTileConcrete).rgb; gainK = uKerb; }
+        else if (kind == 5) { base = texture2D(uConcrete, sideUv(vWPos, vWNrm) * uTileConcrete).rgb; gainK = uConcreteTint; }
+        else {
+          // the shoulder: flat ground from above, rock where the cut wall stands up — the terrain's own rule
+          float steep = 1.0 - smoothstep(0.62, 0.88, abs(vWNrm.y));
+          base = mix(texture2D(uGround, uvP * uTileGround).rgb, texture2D(uCliff, sideUv(vWPos, vWNrm) * uTileCliff).rgb, steep);
+        }
+        diffuseColor *= vec4(pow(base, vec3(2.2)) * gainK, 1.0);   // decode the scan, THEN the gain
+      `)
+      // markings go on AFTER the vertex colour, or the asphalt tone would darken them
+      .replace('#include <color_fragment>', `
+        #include <color_fragment>
+        if (kind == 0 && vRoad.z > 0.5 && uLines > 0.01) {
+          float hw = vRoad.z, u = abs(vRoad.x) / hw, w = fwidth(u) * 0.9 + 0.002;
+          float lw = 0.16 / hw;                                          // a 16 cm line, in u
+          float edge = band(u, 0.90 - lw, 0.90, w);                      // solid edge lines
+          float wide = step(11.5, hw);                                   // 4 lanes: boulevards, expressways
+          float dash = step(fract(vRoad.y / 12.0), 0.5);                 // 6 m on, 6 m off
+          float dashS = step(fract(vRoad.y / 9.0), 0.55);
+          float centreY = mix(band(u, 0.0, lw * 0.9, w) * dashS,          // 2 lanes: a dashed yellow centre
+                              band(u, lw * 0.35, lw * 1.35, w), wide);   // 4 lanes: a double yellow
+          float lane = wide * band(u, 0.5 - lw * 0.5, 0.5 + lw * 0.5, w) * dash;
+          float white = max(edge, lane), yellow = centreY * (1.0 - white);
+          diffuseColor.rgb = mix(diffuseColor.rgb, uLine, white * 0.92 * uLines);
+          diffuseColor.rgb = mix(diffuseColor.rgb, uLineY, yellow * 0.9 * uLines);
+        }
+      `)
+      .replace('#include <roughnessmap_fragment>', pbr ? `
+        float roughnessFactor = roughness;
+        if (kind == 0 && uFlat < 0.5) roughnessFactor *= texture2D(uAsphaltRough, uvP * uTile).g;
+      ` : '#include <roughnessmap_fragment>');
+  };
+  m.customProgramCacheKey = () => 'road' + (pbr ? 'p' : 'l');
+  ROADS.push(m);
+  return m;
 }
 
 // A tiny environment so metal and wet asphalt have something to reflect. Three

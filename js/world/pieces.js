@@ -38,6 +38,9 @@ class P {
     this.sy = Math.sin(this.yaw); this.cy = Math.cos(this.yaw);
     this.M = new THREE.Matrix4();
     this.col = o.c != null && PALETTE[o.c] != null ? PALETTE[o.c] : null;
+    this.top = 0;                                   // highest point built so far (local m) — the detail pass puts chimneys/units on it
+    this.front = null;                              // the box whose +z face is furthest forward: where the door goes
+    this.walls = [];                                // every box: [lx, ly, lz, w, h, d]
   }
   rnd(i) { return hash(this.seed * 7.13 + i * 3.7, this.seed * 1.71 + i); }
   pick(list, i = 0) { return list[Math.floor(this.rnd(i) * list.length) % list.length]; }
@@ -48,6 +51,11 @@ class P {
   box(lx, ly, lz, w, h, d, color, opts = {}) {
     const [wx, wz] = this.W(lx, lz), s = this.s;
     this.C.box(wx, this.y0 + ly * s, wz, w * s, h * s, d * s, this.yaw + (opts.yaw || 0), color, { far: opts.far ?? (h * s > 12), ...opts });
+    if (!opts.yaw && !opts.detail) {
+      this.top = Math.max(this.top, ly + h);
+      if (h >= 2.6 && (!this.front || lz + d / 2 > this.front.z + 0.05 || (Math.abs(lz + d / 2 - this.front.z) <= 0.05 && w > this.front.w))) this.front = { x: lx, z: lz + d / 2, w, h: ly + h, y: ly };
+      this.walls.push([lx, ly, lz, w, h, d]);
+    }
   }
   // any geometry: local centre, scale (sx, sy, sz), own yaw, tilt about x
   mesh(geom, lx, ly, lz, sx, sy, sz, color, opts = {}) {
@@ -57,6 +65,7 @@ class P {
     if (opts.roll) this.M.multiply(new THREE.Matrix4().makeRotationZ(opts.roll));
     this.M.scale(new THREE.Vector3(sx * s, sy * s, sz * s)).setPosition(wx, this.y0 + ly * s, wz);
     this.C.mesh(geom, this.M, color, opts);
+    if (!opts.detail) this.top = Math.max(this.top, ly + sy * 0.5);
   }
   sign(lx, ly, lz, w, h, text, bg, yawOff = 0) {
     const [wx, wz] = this.W(lx, lz), s = this.s;
@@ -78,13 +87,14 @@ class P {
       : { a: [-w / 2, d / 2], b: [-w / 2, -d / 2], c: [w / 2, -d / 2], d: [w / 2, d / 2], r1: [0, d / 2], r2: [0, -d / 2] };
     const Wp = ([px, pz], yy) => { const [wx, wz] = this.W(lx + px, lz + pz); return [wx, yy, wz]; };
     const A = Wp(pts.a, y), B = Wp(pts.b, y), Cc = Wp(pts.c, y), D = Wp(pts.d, y), R1 = Wp(pts.r1, yt), R2 = Wp(pts.r2, yt);
+    this.top = Math.max(this.top, ly + h);
     this.C.quad(A, B, R2, R1, color, { any: true }); this.C.quad(D, R1, R2, Cc, color, { any: true });
     this.C.tri(A, R1, D, color); this.C.tri(B, Cc, R2, color);
   }
   // a lamp: pole + head + glow, local position, height h
   lamp(lx, lz, h = 7, color = 0xffd9a0, r = 9, arm = 0) {
     const [wx, wz] = this.W(lx, lz), s = this.s, yg = this.T.height(wx, wz);
-    this.M.makeScale(0.14 * s, h * s, 0.14 * s).setPosition(wx, yg + h * s / 2, wz);
+    this.M.makeScale(0.14 * s, h * s + 1, 0.14 * s).setPosition(wx, yg + (h * s - 1) / 2, wz);
     this.C.mesh(GEO.cyl6, this.M, 0x4a4d54);
     const [hx, hz] = this.W(lx + arm, lz);
     if (arm) this.box(lx + arm / 2, h - 0.15, lz, Math.abs(arm) + 0.2, 0.14, 0.14, 0x4a4d54, { ao: false, far: false, top: false });
@@ -98,13 +108,13 @@ class P {
     const s = h;
     const [wx, wz] = this.W(lx, lz), yg = this.T.height(wx, wz), S = this.s * s;
     const M = this.M, trunk = kind === 'palm' ? 0x8a7355 : 0x5c4632;
-    const put = (g, y, sx, sy, sz, c, yaw = 0) => { M.makeRotationY(this.yaw + yaw).scale(new THREE.Vector3(sx * S, sy * S, sz * S)).setPosition(wx, yg + y * S, wz); this.C.mesh(g, M, c); };
-    if (kind === 'pine') { put(GEO.cyl6, 2.4, 0.3, 4.8, 0.3, trunk); put(GEO.cone6, 8.5, 3.2, 9, 3.2, color ?? 0x2f5a35); put(GEO.cone6, 5, 3.9, 6, 3.9, color ?? 0x2a5030); }
-    else if (kind === 'broad') { put(GEO.cyl6, 2, 0.34, 4, 0.34, trunk); put(GEO.ico, 6.4, 3.6, 3.4, 3.6, color ?? 0x4f8a3a); put(GEO.ico, 7.6, 2.4, 2.2, 2.4, color ?? 0x5a9a44, 0.7); }
-    else if (kind === 'palm') { put(GEO.cylTaper, 4, 0.32, 8, 0.32, trunk); for (let i = 0; i < 6; i++) put(GEO.cone6, 8.2, 0.9, 4.2, 0.9, color ?? 0x4f8a4a, i * 1.05); }
-    else if (kind === 'autumn') { put(GEO.cyl6, 2, 0.34, 4, 0.34, trunk); put(GEO.ico, 6.2, 3.2, 3.2, 3.2, color ?? 0xc9742f); }
-    else if (kind === 'cypress') { put(GEO.cyl6, 1, 0.2, 2, 0.2, trunk); put(GEO.cone6, 7, 1.3, 12, 1.3, color ?? 0x2a4a2a); }
-    else if (kind === 'dead') { put(GEO.cyl6, 3, 0.3, 6, 0.3, 0x4a3a2a); put(GEO.cylTaper, 6.5, 0.16, 3, 0.16, 0x4a3a2a, 0.5); }
+    const put = (g, y, sx, sy, sz, c, yaw = 0) => { M.makeRotationY(this.yaw + yaw).scale(new THREE.Vector3(sx * S, sy * S, sz * S)).setPosition(wx, yg + y * S, wz); this.C.mesh(g, M, c); };   // trees never count toward a building's top
+    if (kind === 'pine') { put(GEO.cyl6, 1.6, 0.3, 6.4, 0.3, trunk); put(GEO.cone6, 8.5, 3.2, 9, 3.2, color ?? 0x2f5a35); put(GEO.cone6, 5, 3.9, 6, 3.9, color ?? 0x2a5030); }
+    else if (kind === 'broad') { put(GEO.cyl6, 1.2, 0.34, 5.6, 0.34, trunk); put(GEO.ico, 6.4, 3.6, 3.4, 3.6, color ?? 0x4f8a3a); put(GEO.ico, 7.6, 2.4, 2.2, 2.4, color ?? 0x5a9a44, 0.7); }
+    else if (kind === 'palm') { put(GEO.cylTaper, 3.2, 0.32, 9.6, 0.32, trunk); for (let i = 0; i < 6; i++) put(GEO.cone6, 8.2, 0.9, 4.2, 0.9, color ?? 0x4f8a4a, i * 1.05); }
+    else if (kind === 'autumn') { put(GEO.cyl6, 1.2, 0.34, 5.6, 0.34, trunk); put(GEO.ico, 6.2, 3.2, 3.2, 3.2, color ?? 0xc9742f); }
+    else if (kind === 'cypress') { put(GEO.cyl6, 0.2, 0.2, 3.6, 0.2, trunk); put(GEO.cone6, 7, 1.3, 12, 1.3, color ?? 0x2a4a2a); }
+    else if (kind === 'dead') { put(GEO.cyl6, 2.2, 0.3, 7.6, 0.3, 0x4a3a2a); put(GEO.cylTaper, 6.5, 0.16, 3, 0.16, 0x4a3a2a, 0.5); }
     else if (kind === 'bush') { put(GEO.ico, 1, 1.6, 1.3, 1.6, color ?? 0x4f8a3a); put(GEO.ico, 1.2, 1.1, 1.0, 1.1, color ?? 0x5a9a44, 1.2); }
     else if (kind === 'cactus') { put(GEO.cyl8, 2, 0.45, 4, 0.45, 0x5a8a4a); put(GEO.cyl8, 2.6, 0.3, 1.8, 0.3, 0x5a8a4a); }
   }
@@ -116,8 +126,8 @@ class P {
   // a boxy car in a colour, parked
   car(lx, lz, color, yawOff = 0) {
     const c = color ?? this.pick([0xd94f4f, 0x7ea6ff, 0xf0ece0, 0x3a3d44, 0x6fe3a0, 0xffe066, 0x8c8f96], 4);
-    this.box(lx, 0.35, lz, 1.8, 0.7, 4.2, c, { yaw: yawOff, ao: false, far: false });
-    this.box(lx, 1.0, lz - 0.2, 1.6, 0.6, 2.2, 0x2a2d33, { yaw: yawOff, ao: false, far: false });
+    this.box(lx, 0.35, lz, 1.8, 0.7, 4.2, c, { yaw: yawOff, ao: false, far: false, detail: true });
+    this.box(lx, 1.0, lz - 0.2, 1.6, 0.6, 2.2, 0x2a2d33, { yaw: yawOff, ao: false, far: false, detail: true });
     for (const [wx, wz] of [[-0.85, 1.3], [0.85, 1.3], [-0.85, -1.3], [0.85, -1.3]]) {
       const [gx, gz] = [wx * Math.cos(yawOff) + wz * Math.sin(yawOff), -wx * Math.sin(yawOff) + wz * Math.cos(yawOff)];
       this.mesh(GEO.cyl8, lx + gx, 0.3, lz + gz, 0.3, 0.2, 0.3, 0x1a1c20, { roll: Math.PI / 2, yaw: yawOff });
@@ -267,11 +277,101 @@ export const CATS = [
 ];
 export const BY_ID = Object.fromEntries(PIECES.map(p => [p.id, p]));
 
+// ------------------------------------------------------------ the detail pass
+// Adam, 2026-08-29: "make buildings so much more detailed and add little things".
+// Every house and building gets, after its recipe: a real door with a step and a
+// path to the street, drainpipes at the front corners, a chimney or rooftop
+// units, and — seeded, so no two alike — yard and street clutter: bushes,
+// a tree, a fence, a mailbox, a bin, a parked car, an AC unit, a dish, window
+// boxes, benches and planters, a porch light for the night. All of it goes to
+// the NEAR mesh only. `dense` (MED/HIGH) adds the expensive bits; LOW keeps the
+// door, step, path, pipes and roof so the Chromebook keeps its frames.
+const DETAIL = { detail: true, ao: false, far: false };
+const PICKET = 0xf0ece0, PIPE = 0x4a4d54, TRIM = 0x3a3d44;
+function dress(P, piece, dense) {
+  const cat = piece.cat; if (cat !== 'houses' && cat !== 'buildings') return;
+  const fp = piece.fp; if (!fp) return;
+  const r = i => P.rnd(100 + i);
+  const front = P.front; if (!front) return;
+  const fz = front.z, fx = front.x, fw = front.w, lotD = fp[1] / 2, big = cat === 'buildings';
+  const shopfront = piece.id === 'gasstation' || piece.id === 'carwash' || piece.id === 'parkinggarage' || piece.id === 'stadium' || piece.id === 'drivein' || piece.id === 'watertower' || piece.id === 'mast' || piece.id === 'lighthouse' || piece.id === 'crane';
+  if (shopfront) return;
+  // --- the door, its step, the path to the street, and a light over it
+  const dx = fx + (r(1) - 0.5) * Math.max(0, fw - 3) * 0.6;
+  const dw = big ? 2.2 : 1.05, dh = big ? 2.7 : 2.15;
+  P.box(dx, 0.02, fz + 0.06, dw, dh, 0.12, big ? 0x2a3444 : P.pick([0x3a3d44, 0x6a4f3a, 0xd94f4f, 0x2f5a35, 0x7ea6ff], 2), DETAIL);
+  P.box(dx, 0, fz + 0.5, dw + 0.9, 0.16, 0.9, 0x9a9280, DETAIL);
+  if (lotD - fz > 1.2) P.slab(dx, (fz + lotD) / 2 + 0.6, 1.3, lotD - fz + 1.2, 0x9a9280, 0.04);
+  P.box(dx, dh + 0.25, fz + 0.12, 0.35, 0.18, 0.24, 0xffffff, { ...DETAIL, strip: STRIP.lamp, top: false });
+  P.glowBlob(dx, dh + 0.3, fz + 0.3, 0.45, 0xffe0a0, 0.5);
+  // --- drainpipes down the front corners
+  for (const sgn of [-1, 1]) P.box(fx + sgn * (fw / 2 - 0.12), 0, fz - 0.05, 0.14, front.h - 0.2, 0.14, PIPE, DETAIL);
+  // --- the roof: a chimney on a house, units and a parapet on a building
+  if (!big) {
+    if (r(3) < 0.6) {
+      const cx = fx + (r(4) - 0.5) * fw * 0.5, cz = fz - fp[1] * 0.35, cy = P.top - 2.2;
+      P.box(cx, cy, cz, 0.8, 3.2, 0.8, P.pick([0x8a5f4c, 0x9a9280, 0x6a4f3a], 5), DETAIL);
+      if (P.C.chimneys && r(5) < 0.7) { const [wx, wz] = P.W(cx, cz); P.C.chimneys.push([wx, P.y0 + (cy + 3.2) * P.s, wz]); }   // it smokes
+    }
+    if (dense && r(6) < 0.4) P.mesh(GEO.disc, fx + fw * 0.3, P.top - 1.2, fz - 1.5, 0.45, 0.45, 0.45, 0xd8d8d8, { ...DETAIL, tilt: -0.9 });   // a dish
+    if (dense && r(7) < 0.5) for (const sgn of [-1, 1]) P.box(fx + sgn * fw * 0.28, 1.15, fz + 0.18, 1.2, 0.28, 0.3, P.pick([0x6a4f3a, 0x9a9280], 8), DETAIL), P.box(fx + sgn * fw * 0.28, 1.4, fz + 0.18, 1.1, 0.25, 0.26, P.pick([0xd94f4f, 0xff9a5c, 0xffe066, 0xff6b8f], 9), DETAIL);   // window boxes
+  } else {
+    const top = P.top, wall = P.walls.reduce((a, b) => (b[4] > a[4] ? b : a), P.walls[0]);   // the tallest box: its roof
+    if (wall) {
+      const [lx, , lz, w, , d] = wall, ry = wall[1] + wall[4];
+      for (const [ox, oz, ww, dd] of [[0, d / 2 - 0.15, w, 0.3], [0, -d / 2 + 0.15, w, 0.3], [w / 2 - 0.15, 0, 0.3, d], [-w / 2 + 0.15, 0, 0.3, d]]) P.box(lx + ox, ry, lz + oz, ww, 0.6, dd, TRIM, DETAIL);   // parapet
+      const nU = 1 + Math.floor(r(10) * (dense ? 3 : 1));
+      for (let i = 0; i < nU; i++) P.box(lx + (r(11 + i) - 0.5) * (w - 4), ry, lz + (r(21 + i) - 0.5) * (d - 4), 1.6, 1.0 + r(31 + i) * 0.6, 1.3, 0x9a9280, DETAIL);
+      if (dense && r(12) < 0.35 && w > 12) { P.mesh(GEO.cyl8, lx + w * 0.25, ry + 2.4, lz - d * 0.2, 1.4, 2.4, 1.4, 0x8a5f4c, DETAIL); for (const [ox, oz] of [[-0.8, -0.8], [0.8, -0.8], [0.8, 0.8], [-0.8, 0.8]]) P.box(lx + w * 0.25 + ox, ry, lz - d * 0.2 + oz, 0.14, 1.3, 0.14, PIPE, DETAIL); }   // a water tank on legs
+      if (top > 30 && r(13) < 0.7) P.box(lx, ry, lz, 0.3, 6 + r(14) * 6, 0.3, PIPE, DETAIL);   // an antenna
+    }
+    // an awning over the entrance
+    if (r(15) < 0.6) P.box(dx, dh + 0.5, fz + 0.7, dw + 1.6, 0.16, 1.4, P.pick([0xd94f4f, 0x2f5a35, 0x3a3d44, 0xffe066], 16), DETAIL);
+    // AC units on a side wall
+    if (dense) for (let i = 0; i < 2 + Math.floor(r(17) * 2); i++) { const sgn = r(18 + i) < 0.5 ? -1 : 1; P.box(fx + sgn * (fw / 2 + 0.2), 1.6 + r(28 + i) * Math.max(1, front.h - 3), fz - 1.5 - r(38 + i) * (fp[1] - 3), 0.36, 0.6, 0.8, 0xbfbbb2, DETAIL); }
+  }
+  if (!dense) return;
+  // --- the yard / the pavement in front
+  const yard = fz + 1.6, side = r(20) < 0.5 ? -1 : 1;
+  if (!big) {
+    if (r(21) < 0.7) { P.tree(fx - fw / 2 + 1.0, yard, 'bush', 0.5 + r(22) * 0.4); P.tree(fx + fw / 2 - 1.0, yard, 'bush', 0.5 + r(23) * 0.4); }
+    if (r(24) < 0.5) P.tree(side * (fp[0] / 2 + 2.2), (r(25) - 0.5) * fp[1] * 0.6, P.pick(['broad', 'pine', 'autumn'], 26), 0.75 + r(27) * 0.5);
+    if (r(28) < 0.35 && lotD - fz > 3) {                                                    // a picket fence along the front, a gap at the path
+      const fzz = lotD - 0.4;
+      for (let x = -fp[0] / 2 + 0.5; x <= fp[0] / 2 - 0.5; x += 1.8) if (Math.abs(x - dx) > 1.3) P.box(x, 0, fzz, 0.12, 1.0, 0.12, PICKET, DETAIL);
+      for (const [x0, x1] of [[-fp[0] / 2 + 0.5, dx - 1.3], [dx + 1.3, fp[0] / 2 - 0.5]]) if (x1 - x0 > 1) { P.box((x0 + x1) / 2, 0.45, fzz, x1 - x0, 0.08, 0.06, PICKET, DETAIL); P.box((x0 + x1) / 2, 0.8, fzz, x1 - x0, 0.08, 0.06, PICKET, DETAIL); }
+    }
+    if (r(29) < 0.6) { const mx = fp[0] / 2 - 0.8, mz = lotD - 0.6; P.box(mx, 0, mz, 0.08, 1.05, 0.08, PIPE, DETAIL); P.box(mx, 1.05, mz, 0.26, 0.24, 0.46, P.pick([0x3a3d44, 0xd94f4f, 0x7ea6ff], 30), DETAIL); }   // mailbox
+    if (r(31) < 0.5) P.mesh(GEO.cyl8, -fp[0] / 2 + 0.7, 0.5, fz + 0.9, 0.32, 1.0, 0.32, P.pick([0x2f5a35, 0x3a3d44, 0x7ea6ff], 32), DETAIL);   // bin
+    if (r(33) < 0.4) P.car(side * (fp[0] / 2 - 1.2), fz - fp[1] * 0.1 + 2.0, null, 0);                                               // in the drive
+    if (r(34) < 0.4) P.box(-side * (fp[0] / 2 + 0.15), 1.0, fz - fp[1] * 0.4, 0.3, 0.55, 0.8, 0xbfbbb2, DETAIL);                    // an AC unit
+  } else {
+    if (r(35) < 0.7) { P.box(dx + dw + 1.2, 0.45, yard, 1.8, 0.08, 0.5, 0x6a4f3a, DETAIL); P.box(dx + dw + 1.2, 0.5, yard - 0.25, 1.8, 0.5, 0.08, 0x6a4f3a, DETAIL); for (const o of [-0.8, 0.8]) P.box(dx + dw + 1.2 + o, 0, yard, 0.08, 0.45, 0.45, PIPE, DETAIL); }   // bench
+    if (r(36) < 0.6) P.mesh(GEO.cyl8, dx - dw - 0.9, 0.5, yard, 0.32, 1.0, 0.32, P.pick([0x2f5a35, 0x3a3d44], 37), DETAIL);         // bin
+    if (r(38) < 0.7) for (const sgn of [-1, 1]) { const px = dx + sgn * (dw / 2 + 1.1); P.box(px, 0, fz + 0.9, 0.9, 0.6, 0.9, 0x9a9280, DETAIL); P.tree(px, fz + 0.9, 'bush', 0.35 + r(39) * 0.2); }   // planters
+    if (r(40) < 0.5) P.tree(side * (fp[0] / 2 + 2.5), fz - 2, P.pick(['broad', 'cypress', 'palm'], 41), 0.8 + r(42) * 0.4);
+    if (r(43) < 0.5) P.car(-side * (fp[0] / 2 + 2.0), fz - 3 - r(44) * 4, null, Math.PI / 2);                                       // parked at the side
+  }
+}
+
 // build one placed object into a chunk merger (+ glow layer). o: {k, x, z, r, s, c, seed, text}
-export function buildPiece(C, G, T, o) {
+export function buildPiece(C, G, T, o, dense = true) {
   const piece = BY_ID[o.k]; if (!piece) return null;
   const P_ = new P(C, G, T, o, o.seed ?? 1);
+  if (piece.fp) {
+    const s = o.s || 1, w = piece.fp[0] * s, d = piece.fp[1] * s;
+    let lo = P_.y0, hi = P_.y0;
+    for (const [lx, lz] of [[-w / 2, -d / 2], [w / 2, -d / 2], [w / 2, d / 2], [-w / 2, d / 2], [0, -d / 2], [0, d / 2], [-w / 2, 0], [w / 2, 0]]) {
+      const [wx, wz] = P_.W(lx / s, lz / s), y = T.height(wx, wz);
+      lo = Math.min(lo, y); hi = Math.max(hi, y);
+    }
+    if (hi - lo > 0.3) {
+      P_.y0 = hi;
+      C.box(o.x, lo - 0.8, o.z, w * 0.98, hi - lo + 0.8, d * 0.98, P_.yaw, 0x6e6a62, { ao: false, far: false, top: false });   // the foundation
+    }
+  }
   piece.build(P_);
+  try { dress(P_, piece, dense); } catch (e) { console.warn('dress', o.k, e); }
   return piece;
 }
 

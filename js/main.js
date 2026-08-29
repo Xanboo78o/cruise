@@ -6,15 +6,15 @@ import { Car } from './car.js';
 import { PRESETS, CAR_ORDER, TIERS } from './presets.js';
 import { TrackModel } from './track.js';
 import { TRACKS, TRACK_ORDER } from './tracks.js';
-import { World, applyLighting, makeSky, skyForHour, tintSky, usePalette, SKIES } from './world.js';
+import { World, applyLighting, makeSky, skyForHour, tintSky, tickSky, usePalette, SKIES } from './world.js';
 import { buildCar, updateCarMesh, setCarOpacity, setHeadlights, placeStaticCar, setDriver, setStickers } from './carmesh.js';
 import { SkidMarks, Smoke } from './fx.js';
 import { CameraRig, MODE_LABEL } from './camera.js';
 import { Input } from './input.js';
-import { skyEnvironment, setAnisotropy } from './look/materials.js';
+import { skyEnvironment, setAnisotropy, setStylize, setFlat } from './look/materials.js';
 import { SpeedFeel, DIAL } from './look/speed.js';
-import { applyLook, cfgFor, RALLY_SKIES, LOOK_LABEL, LOOKS } from './look/looks.js';
-import { DistanceBlur, DOF_KNOBS } from './look/dof.js';
+import { applyLook, cfgFor, PALETTES, LOOK_LABEL, LOOKS } from './look/looks.js';
+import { Post, DOF_KNOBS, POST_KNOBS } from './look/post.js';
 import { LookPanel } from './lookpanel.js';
 import { HUD } from './hud.js';
 import { LapRecorder, GhostPlayer, PaceCar, Best } from './ghost.js';
@@ -45,15 +45,17 @@ import { Stats } from './stats.js';
 import { Glare } from './glare.js';
 import { loadCityDoc } from './world/citydoc.js';
 import { Editor } from './editor.js';
+import { Cockpit } from './cockpit.js';
 
 const SKY_CYCLE = ['sunset', 'noon', 'dawn', 'night'];
 const MS = 2.23694;
 const MAKER = !!window.MAKER || new URLSearchParams(location.search).has('maker');   // maker.html: the map maker, nothing else
+const FPV = !!window.COCKPIT || new URLSearchParams(location.search).has('fp');      // cockpit.html: first person, no HUD at all
 const cityDoc = await loadCityDoc();                                       // the city as a document: roads + everything placed by hand
 
 const S = {
   track: 'harbor', carId: 'hachi', unitMph: true,
-  stability: 0.35, look: 'real', showLine: true, showBoards: true,
+  stability: 0.35, look: 'kart', showLine: true, showBoards: true,
   ghostOn: true, paceOn: false, pace: 0.85, auto: false, frozen: false,
   hudOn: true, vertical: false, skyIdx: 0, skyChosen: false, running: false,
   mode: 'race', bots: 7, laps: 3, shorts: false, paused: false, grid: 'mixed',
@@ -62,7 +64,7 @@ let attract = false;                      // a race plays behind the title scree
 let cfg = { mode: 'race', bots: 7, laps: 3 };   // what the loaded track is running (attract overrides S)
 
 const app = document.getElementById('app');
-const renderer = new THREE.WebGLRenderer({ antialias: Q.antialias, powerPreference: 'high-performance' });
+const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });   // MSAA lives on the post target (post.js), not the canvas
 renderer.setPixelRatio(Math.min(devicePixelRatio, Q.pixelRatioMax) * Q.renderScale);   // LOW renders at 0.6× and the browser scales it up
 renderer.shadowMap.enabled = Q.shadows;
 renderer.shadowMap.type = THREE.PCFShadowMap;
@@ -73,7 +75,7 @@ app.appendChild(renderer.domElement);
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(62, 1, 0.4, 5000);
 const rig = new CameraRig(camera);
-const dof = new DistanceBlur(renderer);
+const dof = new Post(renderer, Q);                                        // the finished frame: blur, bloom, tone map, grade
 const speedFeel = new SpeedFeel();
 const lookPanel = new LookPanel(speedFeel, dof);   // ` to open
 const ENV_COLS = { noon: [0x6da2e0, 0xdfe6ee, 0x4a4238], sunset: [0x8a4a6a, 0xffb07a, 0x3a2a22],
@@ -87,6 +89,7 @@ const audio = new Audio();
 
 const car = new Car(S.carId, PRESETS);
 let carMesh, ghostMesh, paceMesh, world, model, skyMesh, lights;
+let cockpit = null;                                                        // the inside of the car — every gauge is a real object
 let skid, smoke, items = null, bots = null, race = null, props = null;
 let freeRoam = null, worldRace = null, drone = null, mapScreen = null;   // the city, the race inside it, the fly-in
 let arrival = null;                                                       // the saucer, once
@@ -177,6 +180,11 @@ function loadTrack(id, opts = {}) {
   lightsNight = skyKey === 'night';                                        // the atlas glow and the headlights follow the clock from here
   setDriver(carMesh, S.oo || 'oobi');
   setStickers(carMesh, progress.data.stickers);
+  // the cockpit hangs off the car mesh, so it inherits every bit of body motion
+  if (cockpit) cockpit.dispose();
+  cockpit = new Cockpit(carMesh, car.p, { arms: QUALITY !== 'low' });
+  rig.head = cockpit.head;
+  cockpitOn = null;
 
   rig.setTrackCams(model);
   hud.prepareMap(model);
@@ -246,17 +254,20 @@ function startCruise() {
 // clock resets those — so it is re-asserted rather than set once.
 function refreshLook() {
   if (!lights || !skyMesh) return;
-  usePalette(S.look === 'rally' ? RALLY_SKIES : null);
+  usePalette(PALETTES[S.look] || null);
   const key = (typeof SKY_CYCLE !== 'undefined' && SKY_CYCLE[S.skyIdx]) || (model && model.def && model.def.sky) || 'noon';
-  const table = S.look === 'rally' ? RALLY_SKIES : SKIES;
+  const table = PALETTES[S.look] || SKIES;
   const sky = (typeof freeRoam !== 'undefined' && freeRoam) ? skyForHour(S.hour) : (table[key] || table.noon);
   tintSky(skyMesh, lights, scene, sky);
+  if (world && world.water) world.water.tint(sky);
   applyLook(S.look, { renderer, scene, lights, rig, speedFeel, sky, dof,
     baseAmb: lights.hemi.intensity, baseSun: lights.dir.intensity });
+  glare.baseExposure = renderer.toneMappingExposure;                        // the look's exposure is the eye's resting point
 }
 
 function setLook(name) {
   S.look = name;
+  try { localStorage.setItem('cruise.look', name); } catch {}
   const c = cfgFor(name);
   if (c.dofOn !== undefined) dof.enabled = c.dofOn;
   refreshLook();
@@ -569,6 +580,7 @@ function frame() {
 
   const surf = model.surfaceAt(car.x, car.z);
   updateCarMesh(carMesh, car, dt, inp.brake > 0.05 || inp.handbrake > 0.5, time);
+  updateCockpit(dt, inp, time);
   if (bots) for (const b of bots.list) updateCarMesh(b.mesh, b.car, dt, b.out.brake > 0.05, time);
   if (props) props.sync();
   emitFx(dt, surf);
@@ -608,11 +620,12 @@ function frame() {
   rig.update(dt, car, input.mouse);
   if (world.update) world.update(camera.position.x, camera.position.z);
   if (world.updateLights) world.updateLights(car.x, car.z, dt);
+  if (world.nearChimneys && smoke) for (const c of world.nearChimneys(camera.position.x, camera.position.z, dt)) if (Math.random() < dt * 1.6) smoke.emit(c[0], c[1] - 0.2, c[2], 0, 0, 0.3, [0.92, 0.92, 0.95], 0);   // the chimneys smoke
   if (lights && lights.sky) { const sd = lights.sky.dirPos || [0, 1, 0]; glare.update(camera, sd, lightsNight ? 0 : 1, dt); }
   if (freeRoam) {
     if (!S.clockHeld) S.hour = (S.hour + dt * (24 / 1200)) % 24;
     // the live day: sky, fog and light follow the clock (a race holds its own time)
-    if (!worldRace && skyMesh && lights) { const s = skyForHour(S.hour); tintSky(skyMesh, lights, scene, s); if (s.night !== lightsNight) { lightsNight = s.night; setHeadlights(carMesh, s.night); if (world.setNight) world.setNight(s.night); } }
+    if (!worldRace && skyMesh && lights) { const s = skyForHour(S.hour); tintSky(skyMesh, lights, scene, s); if (world.water) world.water.tint(s); if (s.night !== lightsNight) { lightsNight = s.night; setHeadlights(carMesh, s.night); if (world.setNight) world.setNight(s.night); } }
     if (editor.active && scene.fog) { scene.fog.near *= 2.5; scene.fog.far *= 3; }   // the maker sees the whole range
     const everyone = traffic && !worldRace ? [...allCars(), ...traffic.cars] : allCars();
     if (peds) peds.update(dt, camera.position.x, camera.position.z, everyone, S.hour, worldRace ? worldRace.rc.gate : null);
@@ -652,7 +665,7 @@ function frame() {
       }
     }
   }
-  if (skyMesh) skyMesh.position.copy(camera.position);
+  if (skyMesh) { skyMesh.position.copy(camera.position); tickSky(skyMesh, time); }
   if (lights) {
     lights.dir.position.set(camera.position.x + lights.sky.dirPos[0] * 220,
       camera.position.y + lights.sky.dirPos[1] * 220, camera.position.z + lights.sky.dirPos[2] * 220);
@@ -693,6 +706,36 @@ function frame() {
   else { if (stats) stats.renderBegin(); dof.render(scene, camera); if (stats) stats.renderEnd(); }
   if (stats) stats.update(dt);
   input.endFrame();
+}
+
+// COCKPIT: no HUD at all — the speedo, the revs and the map are objects in the
+// car. The driver Oo goes away because you are sitting in that seat.
+let cockpitOn = null;
+function updateCockpit(dt, inp, time) {
+  if (!cockpit) return;
+  const inCar = rig.mode === 'cockpit';
+  if (inCar !== cockpitOn) {
+    cockpitOn = inCar;
+    cockpit.setVisible(inCar);
+    document.body.classList.toggle('nohud', inCar || !S.hudOn);
+  }
+  const drv = carMesh.userData.driver;
+  if (drv) drv.visible = !inCar;
+  if (!inCar) return;
+  let where = model.def.name;
+  if (freeRoam && !worldRace) {
+    const d = freeRoam.T.districtAt(car.x, car.z);
+    if (d && d.name) where = d.name;
+    else { const nr = freeRoam.T.nearestRoad(car.x, car.z); if (nr && nr.road) where = nr.road.T.name || nr.road.type; }
+  }
+  cockpit.update(dt, car, inp, {
+    model, time, roadName: where,
+    speedShown: car.speed * MS * DIAL,
+    unit: S.unitMph ? 'MPH' : 'KM/H',
+    hour: S.hour,
+    others: bots ? bots.cars : (traffic && !worldRace ? traffic.cars : null),
+    mouse: input.mouse,
+  });
 }
 
 function deltaToGhost() {
@@ -774,8 +817,8 @@ function handleKeys() {
   if (input.tapped('x')) { skid.clear(); smoke.clear(); hud.toast('MARKS CLEARED', 900); }
   if (input.tapped('n')) { S.skyIdx = (S.skyIdx + 1) % SKY_CYCLE.length; S.skyChosen = true; reloadSky(); }
   if (input.tapped('m')) hud.toast('SOUND ' + (audio.toggle() ? 'ON' : 'OFF'), 900);
-  for (let i = 0; i < LOOKS.length; i++) if (input.tapped(String(i + 1))) setLook(LOOKS[i]);   // 1 REAL 2 RALLY 3 FLAT
-  if (input.tapped('4')) { dof.enabled = !dof.enabled; hud.toast('DISTANCE BLUR ' + (dof.enabled ? 'ON' : 'OFF'), 1100); }
+  for (let i = 0; i < LOOKS.length; i++) if (input.tapped(String(i + 1))) setLook(LOOKS[i]);   // 1 KART 2 RALLY 3 REAL 4 FLAT
+  if (input.tapped('5')) { dof.enabled = !dof.enabled; hud.toast('DISTANCE BLUR ' + (dof.enabled ? 'ON' : 'OFF'), 1100); }
   if (input.tapped('u')) { S.unitMph = !S.unitMph; }
   if (input.tapped('escape') || input.tapped('tab')) { if (worldRace) endWorldRace(true); else openMenu(); }
   if (S.shorts && input.tapped('z')) S.auto = true;         // shorts stays on autopilot
@@ -813,6 +856,7 @@ const screens = new Screens({
   onNoCash: () => { hud.toast('NOT ENOUGH CASH — race for it', 1500); },
 });
 try { S.oo = localStorage.getItem('cruise.oo') || S.oo; } catch {}
+try { const l = localStorage.getItem('cruise.look'); if (l && LOOKS.includes(l)) S.look = l; } catch {}   // the look they picked last time
 
 function openMenu() {
   S.paused = true;
@@ -869,10 +913,13 @@ addEventListener('resize', resize);
 // ?t=harbor&c=gt&mode=race&bots=7&laps=3&sky=3&go=1&shorts=1 — bookmarkable
 const q = new URLSearchParams(location.search);
 if (q.has('look') && LOOKS.includes(q.get('look'))) S.look = q.get('look');
+setStylize(!!cfgFor(S.look).stylize);                                     // painted or scanned maps: decided before the first material is built
+setFlat(!!cfgFor(S.look).flat);                                           // flat (faceted terrain) from the first material on
 { const c = cfgFor(S.look); if (c.dofOn !== undefined) dof.enabled = c.dofOn; }
 if (q.get('dof') === '1') dof.enabled = true;
 if (q.get('dof') === '0') dof.enabled = false;
-for (const [k, v] of q) if (DOF_KNOBS[k]) dof.set(k, +v);
+for (const [k, v] of q) if (DOF_KNOBS[k] || POST_KNOBS[k]) dof.set(k, +v);
+if (q.get('post') === '0') dof.on = false;                                 // the direct path, for A/B
 if (q.get('nofog') === '1') { const f = () => { if (scene.fog) { scene.fog.near = 1e5; scene.fog.far = 2e5; } }; f(); setInterval(f, 200); }
 if (q.get('shadows') === '0') renderer.shadowMap.enabled = false;
 const DBG_INPUT = (q.has('steer') || q.has('thr')) ? { steer: +(q.get('steer') || 0), throttle: +(q.get('thr') || 0), brake: 0, handbrake: 0 } : null;
@@ -900,6 +947,11 @@ if (q.has('go') || q.has('shorts')) {
   if (q.has('map') && freeRoam) setTimeout(() => openMap(), 100);
   if (q.has('edit') && freeRoam) setTimeout(() => editor.enter(), 300);
   if (q.has('arrive') && freeRoam) { arrival = new Arrival(scene, freeRoam.T, { x: car.x, z: car.z, yaw: car.yaw }, 12); document.body.classList.add('nohud'); }
+} else if (FPV) {
+  S.track = q.get('t') || 'sanoozi'; S.mode = 'cruise';
+  if (!q.has('sky')) { S.skyIdx = 1; S.skyChosen = true; }
+  go();
+  rig.mode = 'cockpit';
 } else if (MAKER) {
   S.track = 'sanoozi'; S.mode = 'cruise'; S.skyIdx = 1; S.skyChosen = true;
   document.body.classList.add('maker');
@@ -912,5 +964,5 @@ if (q.has('go') || q.has('shorts')) {
   startAttract();
 }
 frame();
-window.CRUISE = { S, car, screens, renderer, scene, camera, get model() { return model; }, get race() { return race; }, get bots() { return bots; },
-  get world() { return world; }, get traffic() { return traffic; }, get smoke() { return smoke; }, get lights() { return lights; }, glare, editor, cityDoc, get peds() { return peds; }, get carMesh() { return carMesh; } };   // debug handles (tools/shot.mjs breakdown)
+window.CRUISE = { S, car, screens, renderer, scene, camera, dof, get model() { return model; }, get race() { return race; }, get bots() { return bots; },
+  get world() { return world; }, get traffic() { return traffic; }, get smoke() { return smoke; }, get lights() { return lights; }, glare, editor, cityDoc, get cockpit() { return cockpit; }, get peds() { return peds; }, get carMesh() { return carMesh; } };   // debug handles (tools/shot.mjs breakdown)

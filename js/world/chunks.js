@@ -12,6 +12,7 @@
 
 import * as THREE from 'three';
 import { WORLD } from './spec.js';
+import { Q } from '../quality.js';
 
 export const CH = 300;                                     // cell size (m)
 const STRIP_M = 12;                                        // one atlas width of facade = 12 m
@@ -37,7 +38,10 @@ export class CityAtlas {
     this.glow = new THREE.CanvasTexture(this.gc);
     this.glow.wrapS = THREE.RepeatWrapping; this.glow.wrapT = THREE.ClampToEdgeWrapping;
     this.glow.colorSpace = THREE.SRGBColorSpace;
-    this.material = new THREE.MeshLambertMaterial({ vertexColors: true, map: this.tex, emissiveMap: this.glow, emissive: 0xffffff, emissiveIntensity: 0 });
+    // MED/HIGH: a real BRDF so walls take the sky's light and the sun's; LOW keeps Lambert (cheaper per pixel)
+    this.material = Q.pbr
+      ? new THREE.MeshStandardMaterial({ vertexColors: true, map: this.tex, emissiveMap: this.glow, emissive: 0xffffff, emissiveIntensity: 0, roughness: 0.86, metalness: 0 })
+      : new THREE.MeshLambertMaterial({ vertexColors: true, map: this.tex, emissiveMap: this.glow, emissive: 0xffffff, emissiveIntensity: 0 });
   }
   setNight(n) { this.material.emissiveIntensity = n ? 0.85 : 0; }
 
@@ -138,6 +142,7 @@ export class Chunks {
     this.cells = new Map();
     this.meshes = [];
     this._c = new THREE.Color();
+    this.chimneys = [];                                    // [x, y, z] of every chimney top, for the smoke
   }
 
   cell(x, z, far) {

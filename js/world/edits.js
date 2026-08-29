@@ -50,16 +50,17 @@ export class EditLayer {
       this.disposeCell(c);
       if (!c.objs.size) continue;
       const C = new Chunks(this.group, this.atlas), G = new GlowLayer(this.group);
-      for (const o of c.objs) { try { buildPiece(C, G, this.T, o); } catch (e) { console.warn('piece', o.k, e); } const fp = footprint(o); if (fp) c.walls.push(fp); }
+      for (const o of c.objs) { try { buildPiece(C, G, this.T, o, Q.pbr); } catch (e) { console.warn('piece', o.k, e); } const fp = footprint(o); if (fp) c.walls.push(fp); }
       C.finish({ shadows: Q.shadows }); G.finish(); G.setNight(this.night);
       c.C = C; c.G = G;
     }
     this.dirty.clear();
-    this._walls = null; this._lamps = null;
+    this._walls = null; this._lamps = null; this._chimneys = null;
   }
 
   get walls() { if (!this._walls) { this._walls = []; for (const c of this.cells.values()) this._walls.push(...c.walls); } return this._walls; }
   get lamps() { if (!this._lamps) { this._lamps = []; for (const c of this.cells.values()) if (c.G) this._lamps.push(...c.G.lamps); } return this._lamps; }
+  get chimneys() { if (!this._chimneys) { this._chimneys = []; for (const c of this.cells.values()) if (c.C) this._chimneys.push(...c.C.chimneys); } return this._chimneys; }
 
   setNight(n) { this.night = n; for (const c of this.cells.values()) if (c.G) c.G.setNight(n); }
   update(camX, camZ, near, far) {

@@ -3,10 +3,14 @@
 
 import * as THREE from 'three';
 
-export const MODES = ['chase', 'low', 'hood', 'drone', 'tv', 'orbit'];
-export const MODE_LABEL = { chase: 'CHASE', low: 'LOW CHASE', hood: 'BUMPER', drone: 'DRONE', tv: 'TRACKSIDE', orbit: 'FREE ORBIT' };
+export const MODES = ['chase', 'low', 'cockpit', 'hood', 'drone', 'tv', 'orbit'];
+export const MODE_LABEL = { chase: 'CHASE', low: 'LOW CHASE', cockpit: 'COCKPIT', hood: 'BUMPER', drone: 'DRONE', tv: 'TRACKSIDE', orbit: 'FREE ORBIT' };
 
 const v = new THREE.Vector3(), look = new THREE.Vector3();
+const scratch = new THREE.Vector3();
+// inside a car the dash is 0.7 m away and the wheel rim closer than that — the
+// chase-cam near plane would slice both in half
+const NEAR_FAR = 0.4, NEAR_COCKPIT = 0.12;
 
 export class CameraRig {
   constructor(camera) {
@@ -24,6 +28,7 @@ export class CameraRig {
     this.fovBoost = 0; this.drop = 0; this.pullIn = 0;
     this.lookUp = 0; this.lookBack = 0;
     this.lagScale = 1; this.shakeConst = 0; this.roll = 0;
+    this.head = null;                                    // cockpit.js hangs the driver's eye here
   }
 
   setTrackCams(model) {
@@ -50,6 +55,26 @@ export class CameraRig {
   kick(amount) { this.shake = Math.min(1, this.shake + amount); }
 
   update(dt, car, mouse) {
+    // COCKPIT: the camera is not aimed at anything, it IS the driver's head —
+    // the whole transform comes from a node inside the car, so body roll, pitch
+    // and every bump arrive for free.
+    if (this.mode === 'cockpit' && this.head) {
+      if (this.cam.near !== NEAR_COCKPIT) { this.cam.near = NEAR_COCKPIT; this.cam.updateProjectionMatrix(); }
+      this.head.updateWorldMatrix(true, false);
+      this.head.matrixWorld.decompose(this.cam.position, this.cam.quaternion, scratch);
+      this.cam.scale.set(1, 1, 1);
+      const shakeAmt = this.shake * 0.12 + this.shakeConst * 0.5;
+      if (shakeAmt > 0.001) {
+        this.cam.position.x += (Math.random() - 0.5) * shakeAmt;
+        this.cam.position.y += (Math.random() - 0.5) * shakeAmt;
+        this.shake *= 1 - Math.min(dt * 4.5, 1);
+      }
+      const want = this.baseFov + 6 + this.fovBoost;     // a windscreen is a wide view
+      this.cam.fov += (want - this.cam.fov) * Math.min(dt * 3.5, 1);
+      this.cam.updateProjectionMatrix();
+      return;
+    }
+    if (this.cam.near !== NEAR_FAR) { this.cam.near = NEAR_FAR; this.cam.updateProjectionMatrix(); }
     const speed = car.speed;
     const heading = Math.atan2(car.vx, car.vz);
     const blend = Math.min(speed / 9, 1);
@@ -61,7 +86,7 @@ export class CameraRig {
       while (diff < -Math.PI) diff += Math.PI * 2;
       ang = car.yaw + diff * 0.72 * blend;
     }
-    const b = car.p.body;
+    const b = car.p.body || { l: car.p.lf + car.p.lr, hood: car.p.tyre.rf + 0.5 };
 
     switch (this.mode) {
       case 'chase':

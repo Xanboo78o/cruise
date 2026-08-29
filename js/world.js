@@ -6,13 +6,13 @@ import * as THREE from 'three';
 
 export const SKIES = {
   sunset: { top: 0x2a3a6b, bot: 0xff9a5c, sun: 0xffd9a0, fog: 0xf2b183, fogNear: 300, fogFar: 1600,
-            hemiSky: 0xffc39a, hemiGround: 0x4a3a2e, dir: 0xffd0a0, dirI: 1.4, amb: 0.40, dirPos: [-0.5, 0.17, -1] },
+            hemiSky: 0xffc39a, hemiGround: 0x4a3a2e, dir: 0xffd0a0, dirI: 1.4, amb: 0.40, dirPos: [-0.5, 0.17, -1], clouds: 0.5 },
   dawn:   { top: 0x1d3f66, bot: 0xf0c8b0, sun: 0xfff0d0, fog: 0xcfd8e0, fogNear: 300, fogFar: 1500,
-            hemiSky: 0xbcd4f0, hemiGround: 0x4a4438, dir: 0xffe8cc, dirI: 1.15, amb: 0.42, dirPos: [0.8, 0.2, 0.4] },
+            hemiSky: 0xbcd4f0, hemiGround: 0x4a4438, dir: 0xffe8cc, dirI: 1.15, amb: 0.42, dirPos: [0.8, 0.2, 0.4], clouds: 0.55 },
   noon:   { top: 0x3f7fd0, bot: 0xbfe0f5, sun: 0xffffff, fog: 0xcfe6f5, fogNear: 400, fogFar: 2400,
-            hemiSky: 0xcfe6ff, hemiGround: 0x5a6a4a, dir: 0xffffff, dirI: 1.25, amb: 0.48, dirPos: [0.4, 0.9, 0.3] },
+            hemiSky: 0xcfe6ff, hemiGround: 0x5a6a4a, dir: 0xffffff, dirI: 1.25, amb: 0.48, dirPos: [0.4, 0.9, 0.3], clouds: 0.42 },
   night:  { top: 0x020308, bot: 0x0a0e1c, sun: 0x8fa6d8, fog: 0x04060c, fogNear: 60, fogFar: 520,
-            hemiSky: 0x1a2236, hemiGround: 0x06080d, dir: 0x9fb0d8, dirI: 0.14, amb: 0.16, dirPos: [-0.4, 0.7, 0.6] },
+            hemiSky: 0x1a2236, hemiGround: 0x06080d, dir: 0x9fb0d8, dirI: 0.14, amb: 0.16, dirPos: [-0.4, 0.7, 0.6], clouds: 0.3 },
 };
 
 // A look can swap the whole palette out from under makeSky/applyLighting/
@@ -29,18 +29,45 @@ function hash2(x, z) {
 
 export function makeSky(scene, key) {
   const s = PALETTE[key] || PALETTE.sunset;
-  const geo = new THREE.SphereGeometry(4000, 24, 16);
+  const geo = new THREE.SphereGeometry(4000, 32, 20);
   const mat = new THREE.ShaderMaterial({
     side: THREE.BackSide, depthWrite: false,
     uniforms: { top: { value: new THREE.Color(s.top) }, bot: { value: new THREE.Color(s.bot) },
-                sun: { value: new THREE.Color(s.sun) }, sunDir: { value: new THREE.Vector3(...s.dirPos).normalize() } },
+                sun: { value: new THREE.Color(s.sun) }, haze: { value: new THREE.Color(s.fog) },
+                sunDir: { value: new THREE.Vector3(...s.dirPos).normalize() },
+                uClouds: { value: s.clouds ?? 0.45 }, uTime: { value: 0 }, uNight: { value: 0 } },
     vertexShader: 'varying vec3 vP; void main(){ vP = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
-    fragmentShader: `varying vec3 vP; uniform vec3 top, bot, sun; uniform vec3 sunDir;
+    // A gradient, a haze band that is the fog colour hugging the horizon (so the
+    // far hills dissolve into the SAME colour the sky meets them with), the sun
+    // as a disc plus two glows, and clouds: three octaves of value noise on a
+    // plane over the dome, lit from the sun's side, thinning to nothing at the
+    // horizon. No textures — the sky is a few dozen sin() per pixel.
+    fragmentShader: `varying vec3 vP; uniform vec3 top, bot, sun, haze; uniform vec3 sunDir; uniform float uClouds, uTime, uNight;
+      float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+      float vnoise(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+        return mix(mix(hash(i), hash(i + vec2(1, 0)), f.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), f.x), f.y); }
+      float fbm(vec2 p) { return vnoise(p) * 0.5 + vnoise(p * 2.03 + 7.1) * 0.3 + vnoise(p * 4.11 + 3.7) * 0.2; }
       void main(){
-        float h = clamp(vP.y * 1.4 + 0.22, 0.0, 1.0);
+        vec3 d = normalize(vP);
+        float h = clamp(d.y * 1.4 + 0.22, 0.0, 1.0);
         vec3 c = mix(bot, top, pow(h, 0.75));
-        float d = max(dot(normalize(vP), normalize(sunDir)), 0.0);
-        c += sun * pow(d, 26.0) * 0.9 + sun * pow(d, 3.0) * 0.13;
+        float hz = 1.0 - smoothstep(-0.02, 0.12, d.y);
+        c = mix(c, haze, hz * 0.55);
+        vec3 sd = normalize(sunDir);
+        float dd = max(dot(d, sd), 0.0);
+        c += sun * pow(dd, 26.0) * 0.9 + sun * pow(dd, 3.0) * 0.13;
+        c = mix(c, sun * 1.8, smoothstep(0.99930, 0.99965, dd) * (1.0 - uNight * 0.6));
+        if (uClouds > 0.001 && d.y > 0.0) {
+          vec2 uv = d.xz / (d.y + 0.14) * 1.1 + uTime * vec2(0.012, 0.005);
+          float n = fbm(uv);
+          float cov = smoothstep(1.0 - uClouds, 1.0 - uClouds + 0.38, n);
+          float fade = smoothstep(0.0, 0.16, d.y);
+          float thick = smoothstep(0.0, 1.0, cov);
+          float lit = 0.55 + 0.45 * pow(dd, 2.0);
+          vec3 cloudCol = mix(haze * 0.75 + 0.12, vec3(1.0, 0.98, 0.95), lit) * (1.0 - 0.32 * thick);
+          cloudCol = mix(cloudCol, cloudCol * 0.2 + haze * 0.3, uNight);
+          c = mix(c, cloudCol, cov * fade * 0.96);
+        }
         gl_FragColor = vec4(c, 1.0);
       }`,
   });
@@ -49,6 +76,8 @@ export function makeSky(scene, key) {
   scene.add(mesh);
   return mesh;
 }
+// the clouds drift: call once a frame with seconds
+export function tickSky(skyMesh, t) { if (skyMesh && skyMesh.material.uniforms.uTime) skyMesh.material.uniforms.uTime.value = t; }
 
 // blend two sky presets by t — the live day uses this every frame
 function lerpCol(a, b, t) { return new THREE.Color(a).lerp(new THREE.Color(b), t); }
@@ -64,6 +93,7 @@ export function skyForHour(hour) {
   return { top: mix('top'), bot: mix('bot'), sun: mix('sun'), fog: mix('fog'),
     fogNear: A.fogNear + (B.fogNear - A.fogNear) * t, fogFar: A.fogFar + (B.fogFar - A.fogFar) * t,
     hemiSky: mix('hemiSky'), hemiGround: mix('hemiGround'), dir: mix('dir'), dirI: A.dirI + (B.dirI - A.dirI) * t, amb: A.amb + (B.amb - A.amb) * t,
+    clouds: (A.clouds ?? 0.45) + ((B.clouds ?? 0.45) - (A.clouds ?? 0.45)) * t, dark: (a === 'night' ? 1 - t : 0) + (b === 'night' ? t : 0),
     dirPos: [0, 1, 2].map(k => A.dirPos[k] + (B.dirPos[k] - A.dirPos[k]) * t), night: t < 0.5 ? a === 'night' : b === 'night' };
 }
 // The world's surfaces are MeshStandard now, not MeshLambert. Lambert is pure
@@ -76,6 +106,7 @@ export const PBR_SUN = 2.1;
 export function tintSky(skyMesh, lights, scene, s) {
   const u = skyMesh.material.uniforms;
   u.top.value.set(s.top); u.bot.value.set(s.bot); u.sun.value.set(s.sun); u.sunDir.value.set(...s.dirPos).normalize();
+  u.haze.value.set(s.fog); u.uClouds.value = s.clouds ?? 0.45; u.uNight.value = s.dark ?? (s === PALETTE.night ? 1 : 0);
   scene.fog.color.set(s.fog); scene.fog.near = s.fogNear; scene.fog.far = s.fogFar;
   lights.hemi.color.set(s.hemiSky); lights.hemi.groundColor.set(s.hemiGround); lights.hemi.intensity = s.amb * 2.2 * PBR_AMB;
   lights.dir.color.set(s.dir); lights.dir.intensity = s.dirI * PBR_SUN;
@@ -151,7 +182,7 @@ export class World {
     this.buildTerrain();
 
     // --- asphalt, with a bit of tonal noise so it isn't a flat slab
-    const base = new THREE.Color(0x565d68), dark = new THREE.Color(0x40454e);
+    const base = new THREE.Color(0x6e7480), dark = new THREE.Color(0x545a64);   // a shade lighter: the circuits go through the same tone map as the city now
     const road = new THREE.Mesh(ribbon(s, closed, -hw, hw, 0.06, i => {
       const t = vnoise(s[i].x * 0.08, s[i].z * 0.08);
       return base.clone().lerp(dark, t * 0.8);

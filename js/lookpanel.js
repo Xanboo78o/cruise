@@ -8,7 +8,7 @@
 // Backtick (`) opens and closes it. Not part of the real game.
 
 import { SPEED_KNOBS } from './look/speed.js';
-import { DOF_KNOBS } from './look/dof.js';
+import { DOF_KNOBS, POST_KNOBS } from './look/post.js';
 
 const CSS = `
 #lookPanel {
@@ -68,8 +68,11 @@ export class LookPanel {
         nothing here changes the handling.</div>
       <div id="speedKnobs"></div>
       <h3 style="margin-top:16px">DISTANCE BLUR</h3>
-      <div class="sub"><b>4</b> on/off</div>
+      <div class="sub"><b>5</b> on/off</div>
       <div id="dofKnobs"></div>
+      <h3 style="margin-top:16px">THE FRAME</h3>
+      <div class="sub">bloom, grade, vignette &middot; the look sets these; move one and it sticks until you switch looks</div>
+      <div id="postKnobs"></div>
       <div class="acts">
         <button data-act="dump">COPY VALUES</button>
         <button data-act="reset">RESET</button>
@@ -94,10 +97,17 @@ export class LookPanel {
           <label><span>${label}</span><b data-dval="${k}"></b></label>
           <input type="range" data-dknob="${k}" min="${min}" max="${max}" step="${step}">
         </div>`).join('');
+      const pw = el.querySelector('#postKnobs');
+      pw.innerHTML = Object.entries(POST_KNOBS).map(([k, [label, min, max, step]]) => `
+        <div class="knob">
+          <label><span>${label}</span><b data-dval="${k}"></b></label>
+          <input type="range" data-dknob="${k}" min="${min}" max="${max}" step="${step}">
+        </div>`).join('');
+      const KN = { ...DOF_KNOBS, ...POST_KNOBS };
       const show = k => el.querySelector(`[data-dval="${k}"]`).textContent =
-        DOF_KNOBS[k][3] >= 1 ? Math.round(dof.v[k]) : dof.v[k].toFixed(2);
-      for (const k of Object.keys(DOF_KNOBS)) {
-        const inp = dw.querySelector(`[data-dknob="${k}"]`);
+        KN[k][3] >= 1 ? Math.round(dof.v[k]) : dof.v[k].toFixed(2);
+      for (const k of Object.keys(KN)) {
+        const inp = el.querySelector(`[data-dknob="${k}"]`);
         inp.value = dof.v[k]; show(k);
         inp.addEventListener('input', () => { dof.set(k, +inp.value); show(k); this.save(); });
       }

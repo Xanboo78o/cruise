@@ -5,11 +5,11 @@
 
 export const LEVELS = {
   low:  { key: 'low',  name: 'LOW',  renderScale: 0.6, pixelRatioMax: 1,   antialias: false, shadows: false, shadowMap: 0,
-          traffic: 8,  peds: 80,  bots: 6,  forestReach: 600,  forestFar: 1500, treeDensity: 0.6,  chunkNear: 450, chunkFar: 1200, billboardLights: false, smoke: 280, pbr: false, dof: false, aniso: 1 },
+          traffic: 8,  peds: 80,  bots: 6,  forestReach: 600,  forestFar: 1500, treeDensity: 0.6,  chunkNear: 450, chunkFar: 1200, billboardLights: false, smoke: 280, pbr: false, dof: false, bloom: false, aniso: 1 },
   med:  { key: 'med',  name: 'MED',  renderScale: 0.8, pixelRatioMax: 1.5, antialias: true,  shadows: true,  shadowMap: 1024,
-          traffic: 16, peds: 160, bots: 11, forestReach: 900,  forestFar: 2000, treeDensity: 0.85, chunkNear: 650, chunkFar: 1700, billboardLights: false, smoke: 480, pbr: true,  dof: false, aniso: 4 },
+          traffic: 16, peds: 160, bots: 11, forestReach: 900,  forestFar: 2000, treeDensity: 0.85, chunkNear: 650, chunkFar: 1700, billboardLights: false, smoke: 480, pbr: true,  dof: false, bloom: true,  aniso: 4 },
   high: { key: 'high', name: 'HIGH', renderScale: 1,   pixelRatioMax: 2,   antialias: true,  shadows: true,  shadowMap: 2048,
-          traffic: 24, peds: 260, bots: 11, forestReach: 1100, forestFar: 2600, treeDensity: 1,    chunkNear: 900, chunkFar: 2400, billboardLights: true, smoke: 700, pbr: true,  dof: true,  aniso: 8 },
+          traffic: 24, peds: 260, bots: 11, forestReach: 1100, forestFar: 2600, treeDensity: 1,    chunkNear: 900, chunkFar: 2400, billboardLights: true, smoke: 700, pbr: true,  dof: true,  bloom: true,  aniso: 8 },
 };
 
 export function gpuName() {

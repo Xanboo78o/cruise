@@ -28,8 +28,8 @@ const r = await send('Page.captureScreenshot', { format: 'png' });
 const ev = await send('Runtime.evaluate', { expression: "(document.getElementById('stats')||{}).textContent + ' | crash: ' + (document.getElementById('crash')||{}).textContent", returnByValue: true });
 console.log('stats:', ev.result?.result?.value);
 for (const l of logs.slice(0, 12)) console.log(l);
-// draw-call breakdown: hide each bucket, render, diff
-const bd = await send('Runtime.evaluate', { awaitPromise: true, returnByValue: true, expression: `(async () => {
+// draw-call breakdown: hide each bucket, render, diff (QUICK=1 skips it: ~25 extra renders, a minute on swiftshader at HIGH)
+const bd = process.env.QUICK ? { result: { result: { value: 'skipped' } } } : await send('Runtime.evaluate', { awaitPromise: true, returnByValue: true, expression: `(async () => {
   const C = window.CRUISE; if (!C || !C.renderer || !C.world) return 'no world';
   const r = C.renderer, s = C.scene, cam = C.camera, W = C.world;
   const buckets = {
@@ -51,7 +51,7 @@ const bd = await send('Runtime.evaluate', { awaitPromise: true, returnByValue: t
   return JSON.stringify(out);
 })()` });
 console.log('draw calls:', bd.result?.result?.value);
-const sm = await send('Runtime.evaluate', { returnByValue: true, expression: "(() => { const s = window.CRUISE && window.CRUISE.smoke; if (!s) return 'no smoke'; let n = 0; for (const l of s.life) if (l > 0) n++; return 'smoke alive ' + n + '/' + s.max; })()" });
+const sm = process.env.QUICK ? { result: { result: { value: '' } } } : await send('Runtime.evaluate', { returnByValue: true, expression: "(() => { const s = window.CRUISE && window.CRUISE.smoke; if (!s) return 'no smoke'; let n = 0; for (const l of s.life) if (l > 0) n++; return 'smoke alive ' + n + '/' + s.max; })()" });
 console.log(sm.result?.result?.value);
 writeFileSync(out, Buffer.from(r.result.data, 'base64'));
 console.log('wrote', out);
