@@ -56,3 +56,11 @@ sketch and we go again.
   embankments, bridges); the land is drawn exactly where the wheels stand.
 - Check any build with `node tools/worldcheck.mjs assets/city/sanoozi.json map.png`
   — every count except the divots' dead ends should be 0.
+- **Buildings and trees.** `node tools/populate.mjs` lines every street with
+  buildings that face it — what they are follows how dense the streets are
+  right there (a tight grid: towers, shops, apartments; loops: houses; the
+  hill: cabins; the shore: beach houses; the red mesa: nothing) plus street
+  lamps in town and a few landmarks. It only replaces its own pieces (tagged
+  `b:1`), never what you placed by hand. The forest grows in the game itself
+  (instanced, thinning to gardens inside town, palms by the water, pines up
+  high) — paint extra trees with the FOLIAGE brush wherever you want more.

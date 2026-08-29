@@ -10,6 +10,7 @@ import { vnoise } from '../terrain.js';
 import { Districts } from './districts.js';
 import { EditLayer } from './edits.js';
 import { CityAtlas, Chunks, GlowLayer } from './chunks.js';
+import { footprint } from './pieces.js';
 import { Q } from '../quality.js';
 
 const sm = t => { t = Math.max(0, Math.min(1, t)); return t * t * (3 - 2 * t); };
@@ -57,7 +58,7 @@ export class WorldBuilder {
     this.buildWater();
     this.buildRoads();
     this.farChunks = [];
-    if (this.doc.autofill !== false) this.buildForest();          // the auto forest belongs to the old auto-filled world
+    if (this.doc.autofill !== false || this.doc.forest) this.buildForest();   // the base forest: instanced, everywhere the land is free
     this.buildBeachAndPier();
     // the old auto-filled districts, until the city tool has replaced them
     this.districts = this.doc.autofill !== false ? new Districts(T, this.group, this.sky === 'night', this.city, this.glow) : { walls: [] };
@@ -336,12 +337,27 @@ export class WorldBuilder {
   // (trunk + crown merged, one draw call per kind) near, and a merged static
   // crown-only forest far. Both frustum-culled.
   buildForest() {
-    const T = this.T, CH = 300, spacing = 17;
+    const T = this.T, CH = 300, spacing = 17, docWorld = this.doc.autofill === false;
+    // the doc world: the forest thins where the streets are dense (gardens, not woods,
+    // between houses), keeps off every lot, the red mesa and the steep walls
+    let urbanAt = () => 0, lotAt = () => false;
+    if (docWorld) {
+      const DG = 40, DW = Math.ceil((WORLD.maxX - WORLD.minX) / DG) + 2, DH = Math.ceil((WORLD.maxZ - WORLD.minZ) / DG) + 2, dens = new Float32Array(DW * DH);
+      for (const r of T.roads) if (r.type === 'street' || r.type === 'blvd' || r.type === 'highway' || r.type === 'coast') for (let s = 0; s < r.L; s += 8) { const p = T.pointAt(r, s), i = Math.floor((p.x - WORLD.minX) / DG), j = Math.floor((p.z - WORLD.minZ) / DG); if (i >= 0 && j >= 0 && i < DW && j < DH) dens[j * DW + i] += 8; }
+      const integ = new Float64Array((DW + 1) * (DH + 1));
+      for (let j = 1; j <= DH; j++) for (let i = 1; i <= DW; i++) integ[j * (DW + 1) + i] = dens[(j - 1) * DW + (i - 1)] + integ[(j - 1) * (DW + 1) + i] + integ[j * (DW + 1) + i - 1] - integ[(j - 1) * (DW + 1) + i - 1];
+      urbanAt = (x, z) => { const R = 5, ci = Math.floor((x - WORLD.minX) / DG), cj = Math.floor((z - WORLD.minZ) / DG), i0 = Math.max(0, ci - R), i1 = Math.min(DW, ci + R + 1), j0 = Math.max(0, cj - R), j1 = Math.min(DH, cj + R + 1); return integ[j1 * (DW + 1) + i1] - integ[j0 * (DW + 1) + i1] - integ[j1 * (DW + 1) + i0] + integ[j0 * (DW + 1) + i0]; };
+      const LG = 10, LW = Math.ceil((WORLD.maxX - WORLD.minX) / LG) + 1, LH = Math.ceil((WORLD.maxZ - WORLD.minZ) / LG) + 1, lots = new Uint8Array(LW * LH);
+      for (const o of this.doc.objects || []) { const fp = footprint(o); if (!fp) continue; const m = 5, i0 = Math.max(0, Math.floor((fp[0] - fp[2] / 2 - m - WORLD.minX) / LG)), i1 = Math.min(LW - 1, Math.ceil((fp[0] + fp[2] / 2 + m - WORLD.minX) / LG)), j0 = Math.max(0, Math.floor((fp[1] - fp[3] / 2 - m - WORLD.minZ) / LG)), j1 = Math.min(LH - 1, Math.ceil((fp[1] + fp[3] / 2 + m - WORLD.minZ) / LG)); for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) lots[j * LW + i] = 1; }
+      lotAt = (x, z) => { const i = Math.floor((x - WORLD.minX) / LG), j = Math.floor((z - WORLD.minZ) / LG); return i >= 0 && j >= 0 && i < LW && j < LH && lots[j * LW + i] === 1; };
+    }
+    const ring = []; for (let k = 0; k < 8; k++) ring.push([Math.cos(k * Math.PI / 4) * 220, Math.sin(k * Math.PI / 4) * 220]);
     const kinds = [
       { trunk: new THREE.CylinderGeometry(0.28, 0.42, 5.5, 5), leaf: new THREE.ConeGeometry(3.2, 9, 6), leafY: 9.5, tc: 0x5c4632, lc: 0x2f5a35 },   // pine
       { trunk: new THREE.CylinderGeometry(0.3, 0.45, 4, 5), leaf: new THREE.IcosahedronGeometry(3.6, 0), leafY: 6.5, tc: 0x6a5238, lc: 0x4f8a3a },   // broadleaf
       { trunk: new THREE.CylinderGeometry(0.22, 0.32, 7, 5), leaf: new THREE.ConeGeometry(3.4, 2.2, 6), leafY: 8.2, tc: 0x8a7355, lc: 0x4f8a4a },    // palm-ish
       { trunk: new THREE.CylinderGeometry(0.3, 0.45, 4.5, 5), leaf: new THREE.IcosahedronGeometry(3.2, 0), leafY: 6.4, tc: 0x6a5238, lc: 0xc9742f },  // autumn
+      { trunk: new THREE.CylinderGeometry(0.3, 0.46, 7, 5), leaf: new THREE.ConeGeometry(3.4, 11, 6), leafY: 11.5, tc: 0x4a3a2a, lc: 0x24452a },   // dark pine, up high
     ];
     // one geometry per kind: trunk + crown, vertex-coloured, so a tree is one draw
     const treeGeo = kinds.map(k => mergeColoured([[k.trunk, 2.2, k.tc], [k.leaf, k.leafY, k.lc]]));
@@ -352,7 +368,7 @@ export class WorldBuilder {
     let total = 0;
     const farPool = new Map();
     for (let cz = WORLD.minZ; cz < WORLD.maxZ; cz += CH) for (let cx = WORLD.minX; cx < WORLD.maxX; cx += CH) {
-      const spots = [[], [], [], []];
+      const spots = [[], [], [], [], []];
       for (let z = cz; z < cz + CH; z += spacing) for (let x = cx; x < cx + CH; x += spacing) {
         const jx = x + (hash2(x, z) - 0.5) * spacing * 0.9, jz = z + (hash2(z, x) - 0.5) * spacing * 0.9;
         const r = hash2(jx * 0.37, jz * 0.53);
@@ -361,13 +377,26 @@ export class WorldBuilder {
         if (y < 3.5) continue;                                              // water / sand
         if (T.districtAt(jx, jz)) continue;
         const nr = T.nearestRoad(jx, jz);
-        if (nr && nr.d < nr.road.T.w / 2 + 7) continue;
+        if (nr && nr.d < nr.road.T.w / 2 + (docWorld ? 10 : 7)) continue;
         if (T.canyonCarve(jx, jz) < -8) continue;                           // canyon walls and floor
         if (y > 380) continue;                                              // treeline
-        // which forest: palms low near the coast, autumn mid, broadleaf, pines up high
-        const coastal = jz < -1200 ? 1 : 0;
-        let kind = coastal && r < 0.7 ? 2 : y > 150 ? 0 : (hash2(jx * 0.011, jz * 0.011) < 0.5 ? 1 : (r < 0.55 ? 3 : 0));
-        if (y > 260) kind = 0;
+        let kind;
+        if (docWorld) {
+          if (T.paintAt(jx, jz) === 11 || lotAt(jx, jz)) continue;          // the red mesa, somebody's lot
+          const slope = T.slopeAt(jx, jz); if (slope > 0.55) continue;     // a wall, not a hillside
+          const u = Math.min(1, urbanAt(jx, jz) / 2600);                    // in town: gardens, not woods
+          if (hash2(jz * 0.71, jx * 0.29) < 0.9 * Math.pow(u, 0.6)) continue;
+          const coastal = y < 14 && ring.filter(([ox, oz]) => T.land(jx + ox, jz + oz) < 0.5).length >= 3;   // a shore, not a creek
+          if (coastal) kind = r < 0.7 ? 2 : 1;
+          else if (y > 200) kind = 4;
+          else if (y > 110 || slope > 0.3) kind = r < 0.8 ? 0 : 4;
+          else kind = r < 0.45 ? 1 : r < 0.72 ? 3 : 0;
+        } else {
+          // the old world: palms low near the coast, autumn mid, broadleaf, pines up high
+          const coastal = jz < -1200 ? 1 : 0;
+          kind = coastal && r < 0.7 ? 2 : y > 150 ? 0 : (hash2(jx * 0.011, jz * 0.011) < 0.5 ? 1 : (r < 0.55 ? 3 : 0));
+          if (y > 260) kind = 0;
+        }
         spots[kind].push([jx, y, jz, 0.75 + r * 0.6, r * 6.28]);
       }
       const near = new THREE.Group();
@@ -375,7 +404,7 @@ export class WorldBuilder {
       if (!farPool.has(fk)) farPool.set(fk, { cx: WORLD.minX + (Math.floor((cx - WORLD.minX) / 600) + 0.5) * 600, cz: WORLD.minZ + (Math.floor((cz - WORLD.minZ) / 600) + 0.5) * 600, spots: [] });
       const far = farPool.get(fk).spots;
       let any = false;
-      for (let k = 0; k < 4; k++) {
+      for (let k = 0; k < kinds.length; k++) {
         if (!spots[k].length) continue;
         any = true;
         const im = new THREE.InstancedMesh(treeGeo[k], mat, spots[k].length);

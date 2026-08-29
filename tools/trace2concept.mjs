@@ -95,11 +95,7 @@ const C = {
   trenches,
   paintPolys: (T.canyon || []).map(pts => ({ pts: rnd(pts), color: 11 })),
   roads,
-  forests: [
-    ...crest.filter(p => len(p) >= 150).map(p => ({ pts: rnd(p), r: 110, kinds: ['pine', 'pine', 'tallpine'], spacing: 15 })),
-    ...ridges.map(r => ({ pts: r.pts, r: 120, kinds: ['pine', 'tallpine'], spacing: 16 })),
-    ...(T.lakes || []).map(pts => ({ pts: rnd(pts), r: 40, kinds: ['broadleaf', 'oak', 'bush'], spacing: 14 })),
-  ],
+  forests: [],                                                    // the game grows the forest itself (build.js buildForest) — pieces only for what Adam paints by hand
   zones: (T.zones || []).map((pts, i) => ({ kind: 'weather', name: 'WEATHER ' + (i + 1), pts: rnd(pts) })),
   objects: [],
 };

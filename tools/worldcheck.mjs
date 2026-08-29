@@ -128,6 +128,22 @@ let wet = 0, cells = 0, lowest = 1e9, lowAt = null;
 for (let j = 0; j <= h; j += 2) for (let k = 0; k <= w; k += 2) { const x = WORLD.minX + k * cell, z = WORLD.minZ + j * cell; const y = T.land(x, z); cells++; if (y < 0.5) { wet++; } if (y < lowest) { lowest = y; lowAt = [x, z]; } }
 console.log(`land below the water line: ${wet} of ${cells} samples (${(100 * wet / cells).toFixed(1)} %), lowest ${lowest.toFixed(0)} m at ${lowAt}`);
 
+// -------------------------------------------------------------- buildings
+{
+  const FP = {}; for (const m of readFileSync(new URL('../js/world/pieces.js', import.meta.url), 'utf8').matchAll(/R\('([a-z0-9]+)', '([a-z]+)', '[^']*', (\[[0-9.]+, [0-9.]+\]|null)/g)) FP[m[1]] = m[3] === 'null' ? null : JSON.parse(m[3]);
+  const bld = (doc.objects || []).filter(o => FP[o.k]); let onDeck = 0, wet = 0, cliff = 0, canyon = 0, overlap = 0;
+  const boxes = bld.map(o => { const fp = FP[o.k], s = o.s || 1, r = (o.r || 0) * Math.PI / 180, cw = Math.abs(Math.cos(r)), sw = Math.abs(Math.sin(r)); return [o.x, o.z, fp[0] * s * cw + fp[1] * s * sw, fp[0] * s * sw + fp[1] * s * cw]; });
+  for (let a = 0; a < bld.length; a++) {
+    const o = bld[a], fp = FP[o.k], s = o.s || 1, r = (o.r || 0) * Math.PI / 180, sy = Math.sin(r), cy = Math.cos(r);
+    for (const [lx, lz] of [[0, 0], [-fp[0] * s / 2, -fp[1] * s / 2], [fp[0] * s / 2, -fp[1] * s / 2], [fp[0] * s / 2, fp[1] * s / 2], [-fp[0] * s / 2, fp[1] * s / 2]]) {
+      const x = o.x + lx * cy + lz * sy, z = o.z - lx * sy + lz * cy, n = T.nearestRoad(x, z);
+      if (n && n.d < n.road.T.w / 2 + 0.5) { onDeck++; break; }
+    }
+    if (T.land(o.x, o.z) < 2) wet++; if (T.slopeAt(o.x, o.z) > 0.5) cliff++; if (T.paintAt(o.x, o.z) === 11) canyon++;
+    for (let b = a + 1; b < bld.length; b++) { const p = boxes[a], q = boxes[b]; if (Math.abs(p[0] - q[0]) < (p[2] + q[2]) / 2 - 1 && Math.abs(p[1] - q[1]) < (p[3] + q[3]) / 2 - 1) { overlap++; break; } }
+  }
+  console.log(`buildings: ${bld.length}; corners on a deck: ${onDeck}, in water: ${wet}, on a cliff: ${cliff}, on the mesa: ${canyon}, overlapping another: ${overlap}; lamps: ${(doc.objects || []).filter(o => o.k === 'lamp').length}`);
+}
 // --------------------------------------------------------------- objects
 if (doc.objects && doc.objects.length) {
   let sunk = 0, floating = 0;

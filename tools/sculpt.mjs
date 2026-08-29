@@ -322,7 +322,7 @@ const UNIT = 10;                                                   // decimetres
 const cm = new Int16Array(dh.length); for (let i = 0; i < dh.length; i++) cm[i] = Math.max(-32000, Math.min(32000, Math.round(dh[i] * UNIT)));
 const touched = dh.some(v => v !== 0) || paint.some(v => v !== 0);
 const terrain = touched ? { n: dh.length, unit: UNIT, dh: b64(await gz(new Uint8Array(cm.buffer))), paint: b64(await gz(paint)) } : null;
-const doc = { v: 2, t: Date.now(), base: C.base || 'flat', autofill: false, roads: C.roads || [], terrain, objects, zones: C.zones || [] };
+const doc = { v: 2, t: Date.now(), base: C.base || 'flat', autofill: false, forest: C.forest !== false, roads: C.roads || [], terrain, objects, zones: C.zones || [] };   // forest: the instanced base forest grows over all the land
 writeFileSync(outPath, JSON.stringify(doc, null, 1));
 let hi = -1e9; for (const v of dh) hi = Math.max(hi, v);
 console.log(`wrote ${outPath}: ${(C.peaks || []).length} peaks, ${(C.ridges || []).length} ridges, ${(C.roads || []).length} roads, ${objects.length} objects, highest ${Math.round(hi + BASE)} m`);
