@@ -18,10 +18,10 @@ export const VMAX_SCALE = 200 / 112;   // an ordinary street car really does 200
 // isn't a spin. The cars keep their characters relative to each other.
 const ARC = { torque: 3.4, grip: 1.55, loadSens: 0.6, brakeG: 1.5, cd: 2.3, steerFalloff: 0.85, cgH: 0.55,
   // RAIL: cornering grip that grows with speed (kart games never let the turning circle grow
-  // with v²). Extra LATERAL tyre force = base × rail × v² — at a real 80 mph (40 on the dial)
-  // that's ×3.3, so a 15 m hairpin holds with room; at walking pace it's nothing. Adam,
-  // 2026-08-29: "I should be able to do a hairpin at 40 with room to spare".
-  rail: 0.0065, railMax: 9 };   // and it stops growing at ×10, so 120+ on the dial doesn't turn the stick into a hair trigger
+  // with v²). Extra LATERAL tyre force = base × min(railMax, rail × v²). Adam, 2026-08-29:
+  // first "a hairpin at 40 with room to spare", then "only apply this change to the police
+  // car, keep all others the same" — so it is OFF here and set on the cop preset alone.
+  rail: 0, railMax: 9 };
 // cgH: with 2 g of grip and a real CG height the inside wheels lift at 1.5 g and
 // the car two-wheels through every fast corner. Arcade cars sit low.
 
@@ -246,7 +246,8 @@ export const PRESETS = {
 
   // ---------------------------------------------------------- the cup cars
   street: build({ ...CUP, label: 'STREET', blurb: 'The cup car. Nothing special, nothing wrong.', model: { file: 'sedan', scale: 1.7, stretchX: 1.12 } }),
-  cop: build({ ...CUP, label: 'COP', blurb: 'Cup car with a light bar. Same numbers, more attitude.', model: { file: 'police', scale: 1.55, stretchX: 1.12 }, mass: 1340 }),
+  cop: build({ ...CUP, rail: 0.0065, railMax: 9,   // the rail (ARC): the law corners like a kart, nobody else does
+    label: 'COP', blurb: 'Cup car with a light bar. Same numbers, more attitude.', model: { file: 'police', scale: 1.55, stretchX: 1.12 }, mass: 1340 }),
   luxe: build({ ...CUP, label: 'LUXE', blurb: 'Cup car in a suit. Same numbers, better seats.', model: { file: 'suv-luxury', scale: 1.6, stretchX: 1.1 }, cgH: 0.52 }),
   flatbed: build({ ...CUP, label: 'FLATBED', blurb: 'Cup car with a bed. Same numbers, could carry a fridge.', model: { file: 'truck-flat', scale: 1.65, stretchX: 1.1 }, cgH: 0.53 }),
   cab: build({ ...CUP, label: 'CAB', blurb: 'Cup car with a meter running. Same numbers.', model: { file: 'taxi', scale: 1.6, stretchX: 1.1 } }),
