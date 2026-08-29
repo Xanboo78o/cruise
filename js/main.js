@@ -37,6 +37,7 @@ import { Race, collideCars } from './race.js';
 import { Screens } from './menu.js';
 import { Q, QUALITY } from './quality.js';
 import { Stats } from './stats.js';
+import { Glare } from './glare.js';
 
 const SKY_CYCLE = ['sunset', 'noon', 'dawn', 'night'];
 const MS = 2.23694;
@@ -66,6 +67,7 @@ const rig = new CameraRig(camera);
 const input = new Input(renderer.domElement);
 const hud = new HUD(document.getElementById('hud'));
 const stats = new URLSearchParams(location.search).has('stats') ? new Stats(renderer) : null;
+const glare = new Glare(renderer);
 const audio = new Audio();
 
 const car = new Car(S.carId, PRESETS);
@@ -138,7 +140,7 @@ function loadTrack(id, opts = {}) {
   world = model.buildWorld ? model.buildWorld(scene, skyKey) : new World(model, scene, { sky: skyKey });
   world.setAids(S.showLine, S.showBoards);
   skid = new SkidMarks(scene);
-  smoke = new Smoke(scene);
+  smoke = new Smoke(scene, Q.smoke);
 
   car.setPreset(S.carId);
   carMesh = buildCar(car.p, { lights: true });
@@ -548,8 +550,10 @@ function frame() {
     if (drone.done) { race.countdown = Math.min(race.countdown, 3.4); document.body.classList.toggle('nohud', !S.hudOn); camera.fov = 62; }
   } else rig.update(dt, car, input.mouse);
   if (world.update) world.update(camera.position.x, camera.position.z);
+  if (world.updateLights) world.updateLights(car.x, car.z, dt);
+  if (lights && lights.sky) { const sd = lights.sky.dirPos || [0, 1, 0]; glare.update(camera, sd, lightsNight ? 0 : 1, dt); }
   if (freeRoam) {
-    S.hour = (S.hour + dt * (24 / 1200)) % 24;
+    if (!S.clockHeld) S.hour = (S.hour + dt * (24 / 1200)) % 24;
     // the live day: sky, fog and light follow the clock (a race holds its own time)
     if (!worldRace && skyMesh && lights) { const s = skyForHour(S.hour); tintSky(skyMesh, lights, scene, s); if (s.night !== lightsNight) { lightsNight = s.night; setHeadlights(carMesh, s.night); if (world.setNight) world.setNight(s.night); } }
     const everyone = traffic && !worldRace ? [...allCars(), ...traffic.cars] : allCars();
@@ -655,12 +659,18 @@ function emitFx(dt, surf) {
       const key = c.presetName + i + (c === car ? 'p' : 'b' + list.indexOf(c));
       const inten = Math.min(Math.max(slide - 3.5, 0) / 12, 1) * Math.min(1, Math.max(0, (c.speed - 3) / 8));
       if (marks) skid.addPoint(key, pw.x, pw.ground, pw.z, Math.cos(c.yaw), -Math.sin(c.yaw), inten, 0.16);
-      if (inten > 0.3 && Math.random() < inten * 0.45) {
-        const col = marks ? [0.88, 0.88, 0.9] : [0.78, 0.68, 0.5];
-        smoke.emit(pw.x, pw.ground, pw.z, -c.vx * 0.2, -c.vz * 0.2, inten * 0.6, col);
+      if (marks) {
+        // tyre smoke: only a real slide on tarmac
+        if (inten > 0.3 && Math.random() < inten * 0.55) smoke.emit(pw.x, pw.ground, pw.z, c.vx, c.vz, inten * 0.7, [0.84, 0.84, 0.88], 0);
+      } else if (pw.contact) {
+        // dust: every wheel kicks it up off tarmac, more with speed and slip, rears more than fronts
+        const dustCol = sf.name === 'sand' ? [0.80, 0.72, 0.52] : sf.name === 'gravel' ? [0.64, 0.57, 0.46] : [0.56, 0.52, 0.40];
+        const amt = Math.min(1, Math.max(0, (c.speed - 2) / 18)) * (i >= 2 ? 1 : 0.5) + inten * 0.6;
+        if (Math.random() < amt * 0.7) smoke.emit(pw.x, pw.ground, pw.z, c.vx, c.vz, amt, dustCol, 1);
       }
     }
-    if (c.speed > 6 && sf.grip < 0.7 && Math.random() < 0.3) smoke.emit(c.x, c.y, c.z, -c.vx * 0.1, -c.vz * 0.1, 0.4, [0.74, 0.64, 0.47]);
+    // a rolling cloud behind a car on the loose at speed
+    if (!marks && c.speed > 9 && Math.random() < 0.5) smoke.emit(c.x - Math.sin(c.yaw) * 2.2, c.y - 0.2, c.z - Math.cos(c.yaw) * 2.2, c.vx, c.vz, 0.8, sf.name === 'sand' ? [0.80, 0.72, 0.52] : [0.6, 0.55, 0.44], 1);
   }
 }
 
@@ -802,7 +812,7 @@ if (q.has('bots')) S.bots = +q.get('bots');
 if (q.has('laps')) S.laps = +q.get('laps');
 if (q.has('grid')) S.grid = q.get('grid');
 if (q.has('oo')) S.oo = q.get('oo');
-if (q.has('hour')) S.hour = +q.get('hour');                                // ?hour=23: the city clock (screenshots)
+if (q.has('hour')) { S.hour = +q.get('hour'); S.clockHeld = true; }       // ?hour=23: the city clock, held there (screenshots)
 resize();
 if (q.has('go') || q.has('shorts')) {
   S.shorts = q.has('shorts');
@@ -822,4 +832,4 @@ if (q.has('go') || q.has('shorts')) {
 }
 frame();
 window.CRUISE = { S, car, screens, renderer, scene, camera, get model() { return model; }, get race() { return race; }, get bots() { return bots; },
-  get world() { return world; }, get traffic() { return traffic; }, get peds() { return peds; }, get carMesh() { return carMesh; } };   // debug handles (tools/shot.mjs breakdown)
+  get world() { return world; }, get traffic() { return traffic; }, get smoke() { return smoke; }, get lights() { return lights; }, glare, get peds() { return peds; }, get carMesh() { return carMesh; } };   // debug handles (tools/shot.mjs breakdown)

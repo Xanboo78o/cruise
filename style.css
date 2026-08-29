@@ -279,3 +279,7 @@ body.nohud .tc { display: none; }
 
 /* ?stats=1 — the Chromebook numbers */
 #stats { position: fixed; left: 8px; bottom: 8px; z-index: 50; font: 12px/1.4 ui-monospace, monospace; color: #e8ffe8; background: rgba(0,0,0,.62); padding: 4px 8px; border-radius: 4px; pointer-events: none; white-space: nowrap; }
+
+/* the sun in your eyes (glare.js) */
+#glare, #glareWash { position: fixed; inset: 0; pointer-events: none; z-index: 5; opacity: 0; }
+#glareWash { background: #fff3dc; mix-blend-mode: screen; }

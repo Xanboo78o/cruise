@@ -4,9 +4,9 @@
 import { spawn } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 const [url, out, waitS = '40'] = process.argv.slice(2);
-const port = 9333 + Math.floor(Math.random() * 100);
+const port = 9333 + Math.floor(Math.random() * 100), stamp = Date.now();
 const ch = spawn('/usr/bin/chromium', ['--headless=new', '--no-sandbox', '--enable-unsafe-swiftshader', '--hide-scrollbars',
-  '--window-size=1280,720', `--remote-debugging-port=${port}`, '--user-data-dir=/tmp/claude-1000/shot-profile-' + port, 'about:blank'], { stdio: 'ignore' });
+  '--window-size=1280,720', `--remote-debugging-port=${port}`, '--user-data-dir=/tmp/claude-1000/shot-profile-' + port + '-' + stamp, '--disk-cache-size=1', '--disable-application-cache', 'about:blank'], { stdio: 'ignore' });
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 let targets;
 for (let i = 0; i < 50; i++) { await sleep(300); try { targets = await (await fetch(`http://127.0.0.1:${port}/json`)).json(); if (targets?.length) break; } catch {} }
@@ -51,6 +51,10 @@ const bd = await send('Runtime.evaluate', { awaitPromise: true, returnByValue: t
   return JSON.stringify(out);
 })()` });
 console.log('draw calls:', bd.result?.result?.value);
+const sm = await send('Runtime.evaluate', { returnByValue: true, expression: "(() => { const s = window.CRUISE && window.CRUISE.smoke; if (!s) return 'no smoke'; let n = 0; for (const l of s.life) if (l > 0) n++; return 'smoke alive ' + n + '/' + s.max; })()" });
+console.log(sm.result?.result?.value);
 writeFileSync(out, Buffer.from(r.result.data, 'base64'));
 console.log('wrote', out);
-ch.kill('SIGKILL'); process.exit(0);
+ch.kill('SIGKILL');
+await sleep(300); try { (await import('node:fs')).rmSync('/tmp/claude-1000/shot-profile-' + port + '-' + stamp, { recursive: true, force: true }); } catch {}
+process.exit(0);

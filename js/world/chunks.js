@@ -39,7 +39,7 @@ export class CityAtlas {
     this.glow.colorSpace = THREE.SRGBColorSpace;
     this.material = new THREE.MeshLambertMaterial({ vertexColors: true, map: this.tex, emissiveMap: this.glow, emissive: 0xffffff, emissiveIntensity: 0 });
   }
-  setNight(n) { this.material.emissiveIntensity = n ? 1 : 0; }
+  setNight(n) { this.material.emissiveIntensity = n ? 0.85 : 0; }
 
   // strip i lives in canvas rows [AH-(i+1)*SH, AH-i*SH): v in [i/16, (i+1)/16)
   stripV(i) { const pad = 2 / AH; return [i * SH / AH + pad, (i + 1) * SH / AH - pad]; }
@@ -54,7 +54,7 @@ export class CityAtlas {
       for (let i = 0; i < 8; i++) {
         const x = i * 1.5 * ppm + 0.3 * ppm, w = 0.9 * ppm, y = y0 + 0.5 * SH / 3.3, h = 1.6 * SH / 3.3;
         rect(g, x, y, w, h, '#4a525e'); rect(g, x + 3, y + 3, w - 6, h * 0.45, '#7d8898');
-        if (hash(i, 1) < 0.45) rect(gg, x, y, w, h, hash(i, 2) < 0.5 ? '#ffd98a' : '#c9d6ff');
+        if (hash(i, 1) < 0.3) rect(gg, x, y, w, h, hash(i, 2) < 0.5 ? '#d9b070' : '#9fb0d0');
       }
     }
     // 2 glass: curtain wall — mullions every 1.5 m and a spandrel band
@@ -62,7 +62,7 @@ export class CityAtlas {
       const y0 = this.stripTop(STRIP.glass);
       rect(g, 0, y0, AW, SH, '#8fa2b8');
       rect(g, 0, y0 + SH * 0.72, AW, SH * 0.28, '#e8e8e4');
-      for (let i = 0; i < 8; i++) { rect(g, i * 1.5 * ppm, y0, 4, SH, '#3a3f48'); if (hash(i, 3) < 0.4) rect(gg, i * 1.5 * ppm + 4, y0, 1.5 * ppm - 8, SH * 0.7, '#ffe6b0'); }
+      for (let i = 0; i < 8; i++) { rect(g, i * 1.5 * ppm, y0, 4, SH, '#3a3f48'); if (hash(i, 3) < 0.28) rect(gg, i * 1.5 * ppm + 4, y0, 1.5 * ppm - 8, SH * 0.7, '#d8c090'); }
     }
     // 3 shop: a ground floor — glass front, a door every 6 m, an awning band
     {
@@ -285,5 +285,77 @@ export class Chunks {
       const d = Math.hypot(m.userData.cx - camX, m.userData.cz - camZ) - margin;
       m.visible = m.userData.which === 'near' ? d < near : (d >= near && d < far);
     }
+  }
+}
+
+// ------------------------------------------------------------------ glow
+// What lights do at night without being lights: an additive layer of pools on
+// the ground and faint cones under every lamp, vertex-coloured (bright at the
+// source, black at the edge — additive black is nothing), one mesh per cell.
+// Mind: blending happens AFTER tone mapping and sRGB encoding, so a 0.05 here
+// lands as ~0.2 on screen and every overlapping layer adds another. Keep k small.
+// Visible at night only. The four nearest lamps to the player get real
+// PointLights on top (see build.js), so the car and the road really light up.
+export class GlowLayer {
+  constructor(group) {
+    this.group = group;
+    this.cells = new Map(); this.meshes = [];
+    this.material = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: true });
+    this._c = new THREE.Color();
+    this.lamps = [];                                       // [x, y, z] of every light head, for the real lights
+  }
+  acc(x, z) {
+    const i = Math.floor((x - WORLD.minX) / CH), j = Math.floor((z - WORLD.minZ) / CH), key = i * 1000 + j;
+    let c = this.cells.get(key);
+    if (!c) { c = { a: new Acc(), cx: WORLD.minX + (i + 0.5) * CH, cz: WORLD.minZ + (j + 0.5) * CH }; this.cells.set(key, c); }
+    return c.a;
+  }
+  // a pool of light on the ground: a fan, centre `k` bright → rim black
+  pool(x, y, z, r, color, k = 0.2, segs = 14) {
+    const c = this._c.set(color), a = this.acc(x, z), base = a.n;
+    a.vert(x, y, z, 0, 1, 0, c.r * k, c.g * k, c.b * k, 0.5, 0.5);
+    for (let i = 0; i <= segs; i++) { const t = i / segs * Math.PI * 2; a.vert(x + Math.cos(t) * r, y, z + Math.sin(t) * r, 0, 1, 0, 0, 0, 0, 0.5, 0.5); }
+    for (let i = 0; i < segs; i++) a.idx.push(base, base + 2 + i, base + 1 + i);
+  }
+  // a cone of light from a head down to the ground, faint
+  cone(x, yTop, z, yBase, rBase, color, k = 0.035, segs = 10) {
+    const c = this._c.set(color), a = this.acc(x, z), base = a.n;
+    a.vert(x, yTop, z, 0, 1, 0, c.r * k, c.g * k, c.b * k, 0.5, 0.5);
+    for (let i = 0; i <= segs; i++) { const t = i / segs * Math.PI * 2; a.vert(x + Math.cos(t) * rBase, yBase, z + Math.sin(t) * rBase, 0, 1, 0, 0, 0, 0, 0.5, 0.5); }
+    // ONE winding, outside faces only: additive layers add up in encoded space, so a
+    // double-sided cone would be four times as bright as it reads
+    for (let i = 0; i < segs; i++) a.idx.push(base, base + 2 + i, base + 1 + i);
+  }
+  // a small bright blob (a bulb, a neon tube, a beacon): a camera-agnostic octahedron
+  blob(x, y, z, r, color, k = 0.9) {
+    const c = this._c.set(color), a = this.acc(x, z), base = a.n;
+    a.vert(x, y, z, 0, 1, 0, c.r * k, c.g * k, c.b * k, 0.5, 0.5);
+    const P = [[r, 0, 0], [-r, 0, 0], [0, r, 0], [0, -r, 0], [0, 0, r], [0, 0, -r]];
+    for (const [dx, dy, dz] of P) a.vert(x + dx, y + dy, z + dz, 0, 1, 0, 0, 0, 0, 0.5, 0.5);
+    const F = [[0, 2, 4], [2, 1, 4], [1, 3, 4], [3, 0, 4], [2, 0, 5], [1, 2, 5], [3, 1, 5], [0, 3, 5]];
+    for (const [p, q, s] of F) { a.idx.push(base + 1 + p, base + 1 + q, base + 1 + s); a.idx.push(base, base + 1 + p, base + 1 + q); a.idx.push(base, base + 1 + q, base + 1 + s); a.idx.push(base, base + 1 + s, base + 1 + p); }
+  }
+  lamp(x, yHead, z, color = 0xffd9a0, r = 9, yGround = null) {
+    const yg = yGround ?? (yHead - 7);
+    this.pool(x, yg + 0.06, z, r, color);
+    this.cone(x, yHead, z, yg + 0.05, r * 0.8, color);
+    this.lamps.push([x, yHead, z]);
+  }
+  finish() {
+    for (const c of this.cells.values()) {
+      if (!c.a.idx.length) continue;
+      const m = new THREE.Mesh(c.a.geometry(), this.material);
+      m.renderOrder = 2; m.userData = { cx: c.cx, cz: c.cz };
+      this.group.add(m); this.meshes.push(m);
+    }
+    this.cells = null;
+    this.setNight(false);
+    return this.meshes;
+  }
+  setNight(n) { this.night = n; for (const m of this.meshes) m.visible = n; }
+  update(camX, camZ, near) {
+    if (!this.night) return;
+    const margin = CH * 0.71;
+    for (const m of this.meshes) m.visible = Math.hypot(m.userData.cx - camX, m.userData.cz - camZ) - margin < near;
   }
 }

@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import { WORLD, ROAD_TYPES, DISTRICTS, COAST, CANYON } from './spec.js';
 import { vnoise } from '../terrain.js';
 import { Districts } from './districts.js';
-import { CityAtlas, Chunks } from './chunks.js';
+import { CityAtlas, Chunks, GlowLayer } from './chunks.js';
 import { Q } from '../quality.js';
 
 const sm = t => { t = Math.max(0, Math.min(1, t)); return t * t * (3 - 2 * t); };
@@ -22,18 +22,38 @@ export class WorldBuilder {
     this.chunks = [];                                    // forest chunks: {cx, cz, near, far}
     this.atlas = new CityAtlas();
     this.city = new Chunks(this.group, this.atlas);
+    this.glow = new GlowLayer(this.group);
     this.buildTerrain();
     this.buildWater();
     this.buildRoads();
     this.buildForest();
     this.buildBeachAndPier();
-    this.districts = new Districts(T, this.group, this.sky === 'night', this.city);
+    this.districts = new Districts(T, this.group, this.sky === 'night', this.city, this.glow);
     this.walls = this.districts.walls;
     this.city.finish({ shadows: Q.shadows });
+    this.glow.finish();
+    // four real lights that hop between the nearest lamps to the player
+    this.lights = [];
+    for (let i = 0; i < 4; i++) { const l = new THREE.PointLight(0xffd9a0, 0, 42, 2); l.visible = false; this.group.add(l); this.lights.push(l); }
+    this.lightT = 0;
     this.setNight(this.sky === 'night');
   }
 
-  setNight(n) { this.atlas.setNight(n); }
+  setNight(n) {
+    this.night = n;
+    this.atlas.setNight(n); this.glow.setNight(n);
+    for (const l of this.lights) l.visible = n;
+  }
+
+  // the real lights: the four nearest lamp heads to (px, pz)
+  updateLights(px, pz, dt) {
+    this.lightT -= dt; if (this.lightT > 0 || !this.night) return;
+    this.lightT = 0.2;
+    const lamps = this.glow.lamps; if (!lamps.length) return;
+    const best = [];
+    for (const l of lamps) { const d = (l[0] - px) ** 2 + (l[2] - pz) ** 2; if (best.length < 4 || d < best[3].d) { best.push({ d, l }); best.sort((a, b) => a.d - b.d); if (best.length > 4) best.pop(); } }
+    this.lights.forEach((L, i) => { const b = best[i]; if (!b) { L.intensity = 0; return; } L.position.set(b.l[0], b.l[1] - 0.4, b.l[2]); L.intensity = 900; });
+  }
 
   // ---------------------------------------------------------------- terrain
   // one height grid, coloured, split into tiles so the far side of the world
@@ -122,7 +142,6 @@ export class WorldBuilder {
     const T = this.T;
     const paved = new THREE.Color(0x4a4f58), gravel = new THREE.Color(0x9a8664), sand = new THREE.Color(0xe0cf98), pier = new THREE.Color(0x8a6e4e);
     const pos = [], col = [], idx = [];
-    const lpos = [], lidx = [];
     for (const r of T.roads) {
       const hw = r.T.w / 2, step = 6;
       const n = Math.max(2, Math.ceil(r.L / step) + 1);
@@ -136,13 +155,6 @@ export class WorldBuilder {
         pos.push(p.x + nx * hw, y, p.z + nz * hw, p.x - nx * hw, y, p.z - nz * hw);
         col.push(c.r * shade, c.g * shade, c.b * shade, c.r * shade, c.g * shade, c.b * shade);
         if (i < n - 1) { const a = base + i * 2; idx.push(a, a + 2, a + 1, a + 2, a + 3, a + 1); }
-        // edge lines on paved roads
-        if (r.T.surf === 'road' && r.type !== 'pier') {
-          for (const side of [-1, 1]) {
-            const o1 = side * (hw - 0.5), o2 = side * (hw - 0.15);
-            lpos.push(p.x + nx * o1, y + 0.02, p.z + nz * o1, p.x + nx * o2, y + 0.02, p.z + nz * o2);
-          }
-        }
       }
       // junction plates: a disc at every polyline vertex so crossings don't show seams
       for (const [x, z] of r.pts) {
@@ -164,12 +176,6 @@ export class WorldBuilder {
     const mesh = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }));
     mesh.receiveShadow = true;
     this.group.add(mesh);
-    // edge lines as quads
-    const lg = new THREE.BufferGeometry();
-    const li = [];
-    for (let i = 0; i + 3 < lpos.length / 3; i += 4) { li.push(i, i + 2, i + 1, i + 2, i + 3, i + 1); }
-    lg.setAttribute('position', new THREE.Float32BufferAttribute(lpos, 3)); lg.setIndex(li);
-    this.group.add(new THREE.Mesh(lg, new THREE.MeshBasicMaterial({ color: 0xe8e5dc, transparent: true, opacity: 0.55, side: THREE.DoubleSide })));
   }
 
   // ----------------------------------------------------------------- forest
@@ -277,6 +283,7 @@ export class WorldBuilder {
     for (const g of this.chunks) g.near.visible = Math.hypot(g.cx - camX, g.cz - camZ) < nr;
     for (const g of this.farChunks) { const d = Math.hypot(g.cx - camX, g.cz - camZ); g.far.visible = d >= nr - 200 && d < fr; }
     this.city.update(camX, camZ, Q.chunkNear, Q.chunkFar);
+    this.glow.update(camX, camZ, Q.chunkNear);
   }
 
   setAids() {}

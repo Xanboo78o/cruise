@@ -18,8 +18,8 @@ const ADS = ['OOZI COLA', 'DRIFT KING TYRES', 'MOTEL OO', 'NITRO+', 'BOARDWALK B
 const PAL = ['#ff9a5c', '#7ea6ff', '#ffd98a', '#ff6b8f', '#6fe3a0', '#f0ece0', '#ffe066'];
 
 export class Districts {
-  constructor(T, group, night, chunks) {
-    this.T = T; this.group = group; this.night = night; this.chunks = chunks;
+  constructor(T, group, night, chunks, glow) {
+    this.T = T; this.group = group; this.night = night; this.chunks = chunks; this.glow = glow;
     this.walls = [];                                     // [cx, cz, w, d] for collisions
     this.cone = new THREE.ConeGeometry(1, 1, 4);
     this.cyl = new THREE.CylinderGeometry(1, 1, 1, 6);
@@ -108,6 +108,7 @@ export class Districts {
           this.M.makeTranslation(x, yg + 3.5, z);
           C.mesh(this.lampG, this.M, lampC);
           C.box(x, yg + 6.9, z, 1.4, 0.22, 0.5, yaw, 0xffffff, { strip: STRIP.lamp, ao: false, far: false, top: false });
+          if (this.glow) this.glow.lamp(x, yg + 6.9, z, 0xffd9a0, 9, yg);
         }
         prev = cur;
       }
