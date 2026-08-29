@@ -211,6 +211,11 @@ forest, and forest is cheap. A flat-out lap of the city stays near 2 minutes.
 
 ## 5. Build order — each phase measured on the Chromebook before the next
 
+*Status 2026-08-28: phases 0 and 1 are in (`?stats=1`, `?quality=`, `?hour=`,
+`world/chunks.js`). Downtown at LOW went 155 → 102 draw calls, ~370k tris, on a
+desktop under software GL. Waiting on the first numbers from the Chromebook.*
+
+
 0. **Instrument + low profile.** `?stats=1` overlay; `?quality=low` that turns
    shadows off, lights down, traffic cheap, render scale 0.6 — on the city as
    it is today. Adam opens the live URL on the Chromebook and reads the
